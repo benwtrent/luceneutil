@@ -22,15 +22,22 @@ import constants
 
 
 # Where the version of Lucene is that will be tested. Expected to be in the base dir above luceneutil.
-LUCENE_CHECKOUT = 'lucene'
 
+#LUCENE_CHECKOUT = 'baseline'
+LUCENE_CHECKOUT = 'lucene_candidate'
 
 # test parameters. This script will run KnnGraphTester on every combination of these parameters
 VALUES = {
-    'ndoc': (10000, 100000, 1000000),
-    'maxConn': (32, 64, 96),
-    'beamWidthIndex': (250, 500),
-    'fanout': (20, 100, 250)
+    #'ndoc': (10000, 100000, 1000000),
+    #'ndoc': (10000, 100000, 200000, 500000),
+    'ndoc': (100000,),# 200000),
+    #'ndoc': (100000,),
+    'maxConn': (16,),
+    'beamWidthIndex': (100,),
+    #'beamWidthIndex': (200,),
+    'fanout': (100,),#, 250),
+    'topK': (10,),
+    #'niter': (10,),
 }
 
 def advance(ix, values):
@@ -44,17 +51,28 @@ def advance(ix, values):
             return True
     return False
 
-def run_knn_benchmark(checkout, values):
+def run_knn_benchmark(checkout, values, training_file, testing_file, dims, metric):
     indexes = [0] * len(values.keys())
     indexes[-1] = -1
     args = []
-    dim = 100
-    doc_vectors = constants.GLOVE_VECTOR_DOCS_FILE
-    query_vectors = '%s/luceneutil/tasks/vector-task-100d.vec' % constants.BASE_DIR
-    cp = benchUtil.classPathToString(benchUtil.getClassPath(checkout))
-    cmd = ['java', '-cp', cp,
-           '-Dorg.apache.lucene.store.MMapDirectory.enableMemorySegments=false',
-           'KnnGraphTester']
+    print(f"\n\n\nNow running{training_file}\n\n\n")
+    dim = dims #768
+    doc_vectors = training_file # '%s/util/wiki768ja.random.train' % constants.BASE_DIR #constants.GLOVE_VECTOR_DOCS_FILE
+    query_vectors = testing_file # '%s/util/wiki768ja.test' % constants.BASE_DIR #'%s/util/tasks/vector-task-100d.vec' % constants.BASE_DIR
+    #dim = 768
+    #doc_vectors = '%s/data/enwiki-20120502-lines-1k-mpnet.vec' % constants.BASE_DIR
+    #query_vectors = '%s/luceneutil/tasks/vector-task-mpnet.vec' % constants.BASE_DIR
+    #dim = 384
+    #doc_vectors = '%s/data/enwiki-20120502-lines-1k-minilm.vec' % constants.BASE_DIR
+    #query_vectors = '%s/luceneutil/tasks/vector-task-minilm.vec' % constants.BASE_DIR
+    #dim = 300
+    #doc_vectors = '%s/data/enwiki-20120502-lines-1k-300d.vec' % constants.BASE_DIR
+    #query_vectors = '%s/util/tasks/vector-task-300d.vec' % constants.BASE_DIR
+    #dim = 256
+    #doc_vectors = '/d/electronics_asin_emb.bin'
+    #query_vectors = '/d/electronics_query_vectors.bin'
+    JAVA_EXE = '/Users/benjamintrent/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home/bin/java'
+
     print("recall\tlatency\tnDoc\tfanout\tmaxConn\tbeamWidth\tvisited\tindex ms")
     while advance(indexes, values):
         pv = {}
@@ -71,14 +89,33 @@ def run_knn_benchmark(checkout, values):
                 else:
                     args += ['-' + p]
         args += [a for (k, v) in pv.items() for a in ('-' + k, str(v)) if a]
+        for co in checkout:
+            print(co)
+            #jfr = f"-XX:StartFlightRecording=settings=profile,stackdepth=1028,maxsize=500M,dumponexit=true,filename={co}-768-100000.jfr"
+            jfr = f"-agentpath:/Users/benjamintrent/Downloads/async-profiler-2.9-macos/build/libasyncProfiler.so=start,event=wall,file={co}-768-100000-wall.jfr"
+            cp = benchUtil.classPathToString(benchUtil.getClassPath(co))
+            cmd = [JAVA_EXE,
+                   jfr,
+                   '-cp', cp,
+                   '--add-modules', 'jdk.incubator.vector',
+                   '-Dorg.apache.lucene.store.MMapDirectory.enableMemorySegments=false',
+                   'KnnGraphTester']
+            this_cmd = cmd + args + [
+                '-dim', str(dim),
+                '-docs', doc_vectors,
+                #'-stats',
+                '-reindex',
+                '-metric', metric,
+                '-search', query_vectors,
+                '-forceMerge',
+                #'-nested', str(128),
+                #'-niter', str(3000),
+                #'-quantile', "0.95",
+                #'-quantize',
+                '-quiet',
+            ]
+            print(this_cmd)
+            subprocess.run(this_cmd)
 
-        this_cmd = cmd + args + [
-            '-dim', str(dim),
-            '-docs', doc_vectors,
-            '-reindex',
-            '-search', query_vectors,
-            '-quiet']
-        #print(this_cmd)
-        subprocess.run(this_cmd)
 
-run_knn_benchmark(LUCENE_CHECKOUT, VALUES)
+run_knn_benchmark(['lucene_candidate'], VALUES, 'wiki768.train', 'wiki768.test', 768, "mip")
