@@ -1,3 +1,4 @@
+import pyarrow.parquet as pq
 import numpy as np
 
 
@@ -86,8 +87,11 @@ with open(f"{name}.test", "w") as out_f:
 # write the same thing but with each vector normalized by their magnitude
 with open(f"{name}.test.norm", "w") as out_f:
     magnitudes = np.linalg.norm(np_flat_ds[training_rows:-1], axis=1)
-    # normalize the vectors
     np_flat_ds[training_rows:-1] = np_flat_ds[training_rows:-1] / magnitudes[:, np.newaxis]
+    # normalize the vectors
+    print(f"{np_flat_ds[training_rows]}")
+    # print magnitude
+    print(f"{np.linalg.norm(np_flat_ds[training_rows])}")
     np_flat_ds[training_rows:-1].tofile(out_f)
 
 
@@ -105,4 +109,7 @@ with open(f"{name}.train.norm", "w") as out_f:
     magnitudes = np.linalg.norm(np_flat_ds[0:training_rows], axis=1)
     # normalize the vectors
     np_flat_ds[0:training_rows] = np_flat_ds[0:training_rows] / magnitudes[:, np.newaxis]
+    print(f"{np_flat_ds[0]}")
+    # print magnitude
+    print(f"{np.linalg.norm(np_flat_ds[0])}")
     np_flat_ds[0:training_rows].tofile(out_f)

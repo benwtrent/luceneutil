@@ -35,8 +35,9 @@ VALUES = {
     'maxConn': (16,),
     'beamWidthIndex': (100,),
     #'beamWidthIndex': (200,),
-    'fanout': (100,),#, 250),
+    'fanout': (10,),#, 250),
     'topK': (10,),
+    'topKAdd': (10, 20, 30, 40, 50),
     #'niter': (10,),
 }
 
@@ -95,7 +96,7 @@ def run_knn_benchmark(checkout, values, training_file, testing_file, dims, metri
             jfr = f"-agentpath:/Users/benjamintrent/Downloads/async-profiler-2.9-macos/build/libasyncProfiler.so=start,event=wall,file={co}-768-100000-wall.jfr"
             cp = benchUtil.classPathToString(benchUtil.getClassPath(co))
             cmd = [JAVA_EXE,
-                   jfr,
+                   #jfr,
                    '-cp', cp,
                    '--add-modules', 'jdk.incubator.vector',
                    '-Dorg.apache.lucene.store.MMapDirectory.enableMemorySegments=false',
@@ -104,18 +105,18 @@ def run_knn_benchmark(checkout, values, training_file, testing_file, dims, metri
                 '-dim', str(dim),
                 '-docs', doc_vectors,
                 #'-stats',
-                '-reindex',
+                #'-reindex',
                 '-metric', metric,
                 '-search', query_vectors,
-                '-forceMerge',
+                #'-forceMerge',
                 #'-nested', str(128),
                 #'-niter', str(3000),
-                #'-quantile', "0.95",
-                #'-quantize',
+                #'-quantile', "1.0",
+                '-quantize',
                 '-quiet',
             ]
-            print(this_cmd)
+            #print(this_cmd)
             subprocess.run(this_cmd)
 
 
-run_knn_benchmark(['lucene_candidate'], VALUES, 'wiki768.train', 'wiki768.test', 768, "mip")
+run_knn_benchmark(['lucene_candidate'], VALUES, 'wiki768.train.norm', 'wiki768.test.norm', 768, "angular")

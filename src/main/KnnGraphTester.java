@@ -91,6 +91,7 @@ public class KnnGraphTester {
   private int numDocs;
   private int dim;
   private int topK;
+  private Integer topKAdd;
   private int numIters;
   private int fanout;
   private Path indexPath;
@@ -193,6 +194,12 @@ public class KnnGraphTester {
           }
           topK = Integer.parseInt(args[++iarg]);
           break;
+        case "-topKAdd":
+          if (iarg == args.length - 1) {
+            throw new IllegalArgumentException("-topKAdd requires a following number");
+          }
+          topKAdd = Integer.parseInt(args[++iarg]);
+          break;
         case "-out":
           outputPath = Paths.get(args[++iarg]);
           break;
@@ -215,6 +222,9 @@ public class KnnGraphTester {
         case "-metric":
           String metric = args[++iarg];
           switch (metric) {
+            case "cosine":
+              similarityFunction = VectorSimilarityFunction.COSINE;
+              break;
             case "euclidean":
               similarityFunction = VectorSimilarityFunction.EUCLIDEAN;
               break;
@@ -404,10 +414,13 @@ public class KnnGraphTester {
       throws IOException {
     TopDocs[] results = new TopDocs[numIters];
     long elapsed, totalCpuTime, totalVisited = 0;
+    if (topKAdd == null) {
+      topKAdd = topK;
+    }
     try (FileChannel input = FileChannel.open(queryPath)) {
       VectorReader targetReader = VectorReader.create(input, dim, vectorEncoding);
       if (quiet == false) {
-        System.out.println("running " + numIters + " targets; topK=" + topK + ", fanout=" + fanout);
+        System.out.println("running " + numIters + " targets; topK=" + topKAdd + ", fanout=" + fanout);
       }
       long start;
       ThreadMXBean bean = ManagementFactory.getThreadMXBean();
@@ -421,9 +434,9 @@ public class KnnGraphTester {
           // warm up
           float[] target = targetReader.next();
           if (prefilter) {
-            doKnnVectorQuery(searcher, KNN_FIELD, target, topK, fanout, bitSetQuery);
+            doKnnVectorQuery(searcher, KNN_FIELD, target, topKAdd, fanout, bitSetQuery);
           } else {
-            doKnnVectorQuery(searcher, KNN_FIELD, target, (int) (topK / selectivity), fanout, null);
+            doKnnVectorQuery(searcher, KNN_FIELD, target, (int) (topKAdd / selectivity), fanout, null);
           }
         }
         targetReader.reset();
@@ -432,11 +445,11 @@ public class KnnGraphTester {
         for (int i = 0; i < numIters; i++) {
           float[] target = targetReader.next();
           if (prefilter) {
-            results[i] = doKnnVectorQuery(searcher, KNN_FIELD, target, topK, fanout, bitSetQuery);
+            results[i] = doKnnVectorQuery(searcher, KNN_FIELD, target, topKAdd, fanout, bitSetQuery);
           } else {
             results[i] =
                 doKnnVectorQuery(
-                    searcher, KNN_FIELD, target, (int) (topK / selectivity), fanout, null);
+                    searcher, KNN_FIELD, target, (int) (topKAdd / selectivity), fanout, null);
 
             if (matchDocs != null) {
               results[i].scoreDocs =
@@ -627,7 +640,7 @@ public class KnnGraphTester {
 
   private int[][] getNN(Path docPath, Path queryPath) throws IOException {
     // look in working directory for cached nn file
-    String hash = Integer.toString(Objects.hash(docPath, queryPath, numDocs, numIters, topK), 36);
+    String hash = Integer.toString(Objects.hash(docPath, queryPath, numDocs, numIters, topK, similarityFunction), 16);
     String nnFileName = "nn-" + hash + ".bin";
     Path nnPath = Paths.get(nnFileName);
     if (Files.exists(nnPath) && isNewer(nnPath, docPath, queryPath) && selectivity == 1f) {
