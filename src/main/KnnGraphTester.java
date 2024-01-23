@@ -44,6 +44,7 @@ import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.lucene99.Lucene99Codec;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswScalarInt4QuantizedVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.document.Document;
@@ -70,6 +71,7 @@ import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.ScoreMode;
 import org.apache.lucene.search.Scorer;
 import org.apache.lucene.search.TopDocs;
+import org.apache.lucene.search.TotalHits;
 import org.apache.lucene.search.Weight;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
@@ -104,8 +106,10 @@ public class KnnGraphTester {
   private boolean forceMerge;
   private int reindexTimeMsec;
   private int beamWidth;
+  private int topKAdd;
   private int maxConn;
   private boolean quantize;
+  private int quantizeBits;
   private int numMergeThread;
   private int numMergeWorker;
   private ExecutorService exec;
@@ -207,11 +211,26 @@ public class KnnGraphTester {
           }
           numIters = Integer.parseInt(args[++iarg]);
           break;
+        case "-topKAdd":
+          if (iarg == args.length - 1) {
+            throw new IllegalArgumentException("-topKAdd requires a following number");
+          }
+          topKAdd = Integer.parseInt(args[++iarg]);
+          break;
         case "-reindex":
           reindex = true;
           break;
         case "-quantize":
           quantize = true;
+          break;
+        case "-quantize_bits":
+          if (iarg == args.length - 1) {
+            throw new IllegalArgumentException("-quantize_bits requires a following number");
+          }
+          quantizeBits = Integer.parseInt(args[++iarg]);
+          if (quantizeBits != 4 && quantizeBits != 7) {
+            throw new IllegalArgumentException("-quantize_bits must be 4 or 7");
+          }
           break;
         case "-topK":
           if (iarg == args.length - 1) {
@@ -332,7 +351,13 @@ public class KnnGraphTester {
   }
 
   private String formatIndexPath(Path docsPath) {
-    return docsPath.getFileName() + "-" + maxConn + "-" + beamWidth + ".index";
+    StringBuilder builder = new StringBuilder(docsPath.getFileName() + "-" + maxConn + "-" + beamWidth);
+    if (this.quantize) {
+      builder.append("-quantize");
+      builder.append(quantizeBits);
+    }
+    builder.append(".index");
+    return builder.toString();
   }
 
   @SuppressForbidden(reason = "Prints stuff")
@@ -355,7 +380,7 @@ public class KnnGraphTester {
   @SuppressForbidden(reason = "Prints stuff")
   private void forceMerge() throws IOException {
     IndexWriterConfig iwc = new IndexWriterConfig().setOpenMode(IndexWriterConfig.OpenMode.APPEND);
-    iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize));
+    iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize, quantizeBits));
     if (quiet == false) {
       // not a quiet place!
       iwc.setInfoStream(new PrintStreamInfoStream(System.out));
@@ -416,6 +441,7 @@ public class KnnGraphTester {
       throws IOException {
     TopDocs[] results = new TopDocs[numIters];
     long elapsed, totalCpuTime, totalVisited = 0;
+    int topK = this.topK + topKAdd;
     ExecutorService executorService = Executors.newFixedThreadPool(8);
     try (FileChannel input = FileChannel.open(queryPath)) {
       VectorReader targetReader = VectorReader.create(input, dim, vectorEncoding);
@@ -599,7 +625,9 @@ public class KnnGraphTester {
   private static TopDocs doKnnVectorQuery(
       IndexSearcher searcher, String field, float[] vector, int k, int fanout, Query filter)
       throws IOException {
-    return searcher.search(new KnnFloatVectorQuery(field, vector, k + fanout, filter), k);
+    ProfiledKnnFloatVectorQuery profiledQuery = new ProfiledKnnFloatVectorQuery(field, vector, k, fanout, filter);
+    TopDocs docs = searcher.search(profiledQuery, k);
+    return new TopDocs(new TotalHits(profiledQuery.totalVectorCount(), docs.totalHits.relation), docs.scoreDocs);
   }
 
   private float checkResults(TopDocs[] results, int[][] nn) {
@@ -748,7 +776,7 @@ public class KnnGraphTester {
 
   private int createIndex(Path docsPath, Path indexPath) throws IOException {
     IndexWriterConfig iwc = new IndexWriterConfig().setOpenMode(IndexWriterConfig.OpenMode.CREATE);
-    iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize));
+    iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize, quantizeBits));
     // iwc.setMergePolicy(NoMergePolicy.INSTANCE);
     iwc.setRAMBufferSizeMB(WRITER_BUFFER_MB);
     iwc.setUseCompoundFile(false);
@@ -792,13 +820,13 @@ public class KnnGraphTester {
     return (int) TimeUnit.NANOSECONDS.toMillis(elapsed);
   }
 
-  private static Codec getCodec(int maxConn, int beamWidth, ExecutorService exec, int numMergeWorker, boolean quantize) {
+  private static Codec getCodec(int maxConn, int beamWidth, ExecutorService exec, int numMergeWorker, boolean quantize, int quantizeBits) {
     if (exec == null) {
       return new Lucene99Codec() {
         @Override
         public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
           return quantize ?
-            new Lucene99HnswScalarQuantizedVectorsFormat(maxConn, beamWidth) :
+            quantizeBits == 4 ? new Lucene99HnswScalarInt4QuantizedVectorsFormat(maxConn, beamWidth) : new Lucene99HnswScalarQuantizedVectorsFormat(maxConn, beamWidth) :
             new Lucene99HnswVectorsFormat(maxConn, beamWidth);
         }
       };
@@ -807,7 +835,7 @@ public class KnnGraphTester {
         @Override
         public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
           return quantize ?
-            new Lucene99HnswScalarQuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, null, exec) :
+            quantizeBits == 4 ? new Lucene99HnswScalarInt4QuantizedVectorsFormat(maxConn, beamWidth) : new Lucene99HnswScalarQuantizedVectorsFormat(maxConn, beamWidth) :
             new Lucene99HnswVectorsFormat(maxConn, beamWidth, numMergeWorker, exec);
         }
       };
@@ -819,6 +847,36 @@ public class KnnGraphTester {
         "Usage: TestKnnGraph [-reindex] [-search {queryfile}|-stats|-check] [-docs {datafile}] [-niter N] [-fanout N] [-maxConn N] [-beamWidth N] [-filterSelectivity N] [-prefilter]";
     System.err.println(error);
     System.exit(1);
+  }
+
+  private static class ProfiledKnnFloatVectorQuery extends KnnFloatVectorQuery {
+    private final Query filter;
+    private final int k;
+    private final int fanout;
+    private final String field;
+    private final float[] target;
+    private long totalVectorCount;
+
+    ProfiledKnnFloatVectorQuery(String field, float[] target, int k, int fanout, Query filter) {
+      super(field, target, k + fanout, filter);
+      this.field = field;
+      this.target = target;
+      this.k = k;
+      this.fanout = fanout;
+      this.filter = filter;
+    }
+
+    @Override
+    protected TopDocs mergeLeafResults(TopDocs[] perLeafResults) {
+      TopDocs td = TopDocs.merge(k, perLeafResults);
+      totalVectorCount = td.totalHits.value;
+      return td;
+    }
+
+    long totalVectorCount() {
+      return totalVectorCount;
+    }
+
   }
 
   private static class BitSetQuery extends Query {
