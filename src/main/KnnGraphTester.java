@@ -44,6 +44,7 @@ import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.lucene99.Lucene99Codec;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat;
+import org.apache.lucene.codecs.lucene99.Lucene99VamanaVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.document.Document;
@@ -90,6 +91,11 @@ import org.apache.lucene.util.hnsw.NeighborQueue;
  */
 public class KnnGraphTester {
 
+  enum GraphKind {
+    HNSW,
+    VAMANA
+  }
+
   private static final String KNN_FIELD = "knn";
   private static final String ID_FIELD = "id";
   private static final double WRITER_BUFFER_MB = 1994d;
@@ -115,6 +121,7 @@ public class KnnGraphTester {
   private FixedBitSet matchDocs;
   private float selectivity;
   private boolean prefilter;
+  private GraphKind graphKind;
 
   private KnnGraphTester() {
     // set defaults
@@ -129,6 +136,7 @@ public class KnnGraphTester {
     vectorEncoding = VectorEncoding.FLOAT32;
     selectivity = 1f;
     prefilter = false;
+    graphKind = GraphKind.HNSW;
   }
 
   public static void main(String... args) throws Exception {
@@ -183,6 +191,12 @@ public class KnnGraphTester {
             throw new IllegalArgumentException("-beamWidthIndex requires a following number");
           }
           beamWidth = Integer.parseInt(args[++iarg]);
+          break;
+        case "-graphKind":
+          if (iarg == args.length - 1) {
+            throw new IllegalArgumentException("-graphKind requires a following string");
+          }
+          graphKind = GraphKind.valueOf(args[++iarg]);
           break;
         case "-maxConn":
           if (iarg == args.length - 1) {
@@ -333,7 +347,7 @@ public class KnnGraphTester {
   }
 
   private String formatIndexPath(Path docsPath) {
-    return docsPath.getFileName() + "-" + maxConn + "-" + beamWidth + ".index";
+    return docsPath.getFileName() + "-" + maxConn + "-" + beamWidth + "-" + graphKind + ".index";
   }
 
   @SuppressForbidden(reason = "Prints stuff")
@@ -356,7 +370,7 @@ public class KnnGraphTester {
   @SuppressForbidden(reason = "Prints stuff")
   private void forceMerge() throws IOException {
     IndexWriterConfig iwc = new IndexWriterConfig().setOpenMode(IndexWriterConfig.OpenMode.APPEND);
-    iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize));
+    iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize, graphKind));
     if (quiet == false) {
       // not a quiet place!
       iwc.setInfoStream(new PrintStreamInfoStream(System.out));
@@ -751,7 +765,7 @@ public class KnnGraphTester {
 
   private int createIndex(Path docsPath, Path indexPath) throws IOException {
     IndexWriterConfig iwc = new IndexWriterConfig().setOpenMode(IndexWriterConfig.OpenMode.CREATE);
-    iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize));
+    iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize, graphKind));
     // iwc.setMergePolicy(NoMergePolicy.INSTANCE);
     iwc.setRAMBufferSizeMB(WRITER_BUFFER_MB);
     iwc.setUseCompoundFile(false);
@@ -795,11 +809,14 @@ public class KnnGraphTester {
     return (int) TimeUnit.NANOSECONDS.toMillis(elapsed);
   }
 
-  private static Codec getCodec(int maxConn, int beamWidth, ExecutorService exec, int numMergeWorker, boolean quantize) {
+  private static Codec getCodec(int maxConn, int beamWidth, ExecutorService exec, int numMergeWorker, boolean quantize, GraphKind graphKind) {
     if (exec == null) {
       return new Lucene99Codec() {
         @Override
         public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
+          if (graphKind == GraphKind.VAMANA) {
+            return new Lucene99VamanaVectorsFormat(maxConn, beamWidth);
+          }
           return quantize ?
             new Lucene99HnswScalarQuantizedVectorsFormat(maxConn, beamWidth) :
             new Lucene99HnswVectorsFormat(maxConn, beamWidth);
@@ -809,6 +826,9 @@ public class KnnGraphTester {
       return new Lucene99Codec() {
         @Override
         public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
+          if (graphKind == GraphKind.VAMANA) {
+            return new Lucene99VamanaVectorsFormat(maxConn, beamWidth, numMergeWorker, exec);
+          }
           return quantize ?
             new Lucene99HnswScalarQuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, null, exec) :
             new Lucene99HnswVectorsFormat(maxConn, beamWidth, numMergeWorker, exec);

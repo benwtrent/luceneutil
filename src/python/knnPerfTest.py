@@ -28,7 +28,7 @@ LUCENE_CHECKOUT = 'candidate'
 VALUES = {
     #'ndoc': (10000, 100000, 1000000),
     #'ndoc': (10000, 100000, 200000, 500000),
-    'ndoc': (10000, 100000, 200000),
+    'ndoc': (1_000_000,),# 100000, 200000),
     #'ndoc': (100000,),
     #'maxConn': (32, 64, 96),
     'maxConn': (64, ),
@@ -55,23 +55,12 @@ def run_knn_benchmark(checkout, values):
     indexes = [0] * len(values.keys())
     indexes[-1] = -1
     args = []
-    #dim = 100
-    #doc_vectors = constants.GLOVE_VECTOR_DOCS_FILE
-    #query_vectors = '%s/luceneutil/tasks/vector-task-100d.vec' % constants.BASE_DIR
-    #dim = 768
-    #doc_vectors = '%s/data/enwiki-20120502-lines-1k-mpnet.vec' % constants.BASE_DIR
-    #query_vectors = '%s/luceneutil/tasks/vector-task-mpnet.vec' % constants.BASE_DIR
-    dim = 384
-    doc_vectors = '%s/data/enwiki-20120502-lines-1k-minilm.vec' % constants.BASE_DIR
-    query_vectors = '%s/luceneutil/tasks/vector-task-minilm.vec' % constants.BASE_DIR
-    #dim = 300
-    #doc_vectors = '%s/data/enwiki-20120502-lines-1k-300d.vec' % constants.BASE_DIR
-    #query_vectors = '%s/luceneutil/tasks/vector-task-300d.vec' % constants.BASE_DIR
-    #dim = 256
-    #doc_vectors = '/d/electronics_asin_emb.bin'
-    #query_vectors = '/d/electronics_query_vectors.bin'
+    dim = 768
+    doc_vectors = '%s/data/corpus-wiki-cohere.fvec' % constants.BASE_DIR
+    query_vectors = '%s/data/wiki768.test' % constants.BASE_DIR
     cp = benchUtil.classPathToString(benchUtil.getClassPath(checkout))
     cmd = [constants.JAVA_EXE, '-cp', cp,
+            '-Xmx4g', '-Xms4g',
            '--add-modules', 'jdk.incubator.vector',
            '-Dorg.apache.lucene.store.MMapDirectory.enableMemorySegments=false',
            'KnnGraphTester']
@@ -97,8 +86,11 @@ def run_knn_benchmark(checkout, values):
             '-docs', doc_vectors,
             '-reindex',
             '-search', query_vectors,
-            # '-numMergeThread', '8', '-numMergeWorker', '8',
-            # '-forceMerge',
+            '-quantize',
+            #'-numMergeThread', '8', '-numMergeWorker', '8',
+            '-metric', 'mip',
+            '-graphKind', 'HNSW',
+            '-forceMerge',
             '-quiet']
         #print(this_cmd)
         subprocess.run(this_cmd)
