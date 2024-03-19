@@ -45,7 +45,7 @@ import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.lucene99.Lucene99Codec;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
-import org.apache.lucene.codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswScalarInt4QuantizedVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.document.Document;
@@ -57,6 +57,7 @@ import org.apache.lucene.index.CodecReader;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.ConcurrentMergeScheduler;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.StoredFields;
@@ -365,6 +366,9 @@ public class KnnGraphTester {
   @SuppressForbidden(reason = "Prints stuff")
   private void forceMerge() throws IOException {
     IndexWriterConfig iwc = new IndexWriterConfig().setOpenMode(IndexWriterConfig.OpenMode.APPEND);
+    //if (iwc.getMergeScheduler() instanceof ConcurrentMergeScheduler && numMergeWorker > 1) {
+    //  ((ConcurrentMergeScheduler) iwc.getMergeScheduler()).setMaxMergesAndThreads(numMergeWorker+5, numMergeWorker);
+    //}
     iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize));
     if (quiet == false) {
       // not a quiet place!
@@ -794,6 +798,9 @@ public class KnnGraphTester {
 
   private int createIndex(Path docsPath, Path indexPath) throws IOException {
     IndexWriterConfig iwc = new IndexWriterConfig().setOpenMode(IndexWriterConfig.OpenMode.CREATE);
+    //if (iwc.getMergeScheduler() instanceof ConcurrentMergeScheduler && numMergeWorker > 1) {
+    //  ((ConcurrentMergeScheduler) iwc.getMergeScheduler()).setMaxMergesAndThreads(numMergeWorker+5, numMergeWorker);
+    //}
     iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize));
     // iwc.setMergePolicy(NoMergePolicy.INSTANCE);
     iwc.setRAMBufferSizeMB(WRITER_BUFFER_MB);
@@ -834,10 +841,10 @@ public class KnnGraphTester {
       }
     }
     long elapsed = System.nanoTime() - start;
-    if (quiet == false) {
+    //if (quiet == false) {
       System.out.println(
-          "Indexed " + numDocs + " documents in " + TimeUnit.NANOSECONDS.toSeconds(elapsed) + "s");
-    }
+          "Indexed " + numDocs + " documents in " + TimeUnit.NANOSECONDS.toMillis(elapsed) + "ms");
+    //}
     return (int) TimeUnit.NANOSECONDS.toMillis(elapsed);
   }
 
@@ -847,8 +854,8 @@ public class KnnGraphTester {
         @Override
         public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
           return quantize ?
-            new Lucene99HnswScalarQuantizedVectorsFormat(maxConn, beamWidth) :
-            new Lucene99HnswVectorsFormat(maxConn, beamWidth);
+            new Lucene99HnswScalarInt4QuantizedVectorsFormat(maxConn, beamWidth) :
+            new Lucene99HnswVectorsFormat(maxConn, beamWidth, numMergeWorker, null);
         }
       };
     } else {
@@ -856,7 +863,7 @@ public class KnnGraphTester {
         @Override
         public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
           return quantize ?
-            new Lucene99HnswScalarQuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, null, exec) :
+            new Lucene99HnswScalarInt4QuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, exec) :
             new Lucene99HnswVectorsFormat(maxConn, beamWidth, numMergeWorker, exec);
         }
       };

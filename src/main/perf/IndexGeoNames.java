@@ -49,6 +49,7 @@ import org.apache.lucene.document.TextField;
 //import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.ConcurrentMergeScheduler;
 import org.apache.lucene.index.IndexWriterConfig.OpenMode;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.NoMergePolicy;
@@ -78,20 +79,20 @@ public class IndexGeoNames {
     IndexWriterConfig iwc = new IndexWriterConfig(new StandardAnalyzer());
     iwc.setOpenMode(OpenMode.CREATE);
     //iwc.setRAMBufferSizeMB(350);
-    iwc.setInfoStream(new PrintStreamInfoStream(System.out));
-    if (normal == false) {
-      iwc.setRAMBufferSizeMB(128);
-      iwc.setMergePolicy(NoMergePolicy.INSTANCE);
+    //iwc.setInfoStream(new PrintStreamInfoStream(System.out));
+    //if (normal == false) {
+      iwc.setRAMBufferSizeMB(12);
+      //iwc.setMergePolicy(NoMergePolicy.INSTANCE);
       //iwc.setMergePolicy(NoMergePolicy.NO_COMPOUND_FILES);
-    } else {
+    //} else {
       // 5/5 segments:
-      iwc.setMaxBufferedDocs(157234);
-      iwc.setRAMBufferSizeMB(-1);
-    }
-    //((ConcurrentMergeScheduler) iwc.getMergeScheduler()).setMaxMergesAndThreads(3, 1);
+      //iwc.setMaxBufferedDocs(157234);
+      //iwc.setRAMBufferSizeMB(-1);
+    //}
+    //((ConcurrentMergeScheduler) iwc.getMergeScheduler()).setMaxMergesAndThreads(3, 4);
     final IndexWriter w = new IndexWriter(dir, iwc);
 
-    final Field.Store store = Field.Store.NO;
+    final Field.Store store = Field.Store.YES;
 
     // 64K buffer:
     InputStream is = new FileInputStream(geoNamesFile);
@@ -102,9 +103,9 @@ public class IndexGeoNames {
     Thread[] threads = new Thread[numThreads];
 
     // With reuse it's ~ 38% faster (41.8 sec vs 67.0 sec):
-    final boolean reuseDocAndFields = false;
+    final boolean reuseDocAndFields = true;
     // With 20 threads, it's ~35% faster with batching:
-    final boolean batchAddDocuments = false;
+    final boolean batchAddDocuments = true;
 
     final AtomicBoolean done = new AtomicBoolean();
     final ArrayBlockingQueue<Deque<String>> workQueue = new ArrayBlockingQueue<>(1000);
@@ -350,8 +351,16 @@ public class IndexGeoNames {
     w.close();
     long ms = System.currentTimeMillis();
     System.out.println(docsIndexed + ": " + ((ms - startMS)/1000.0) + " sec");
+    dir.close();
     //System.out.println("tot conflicts: " + BytesRefHash.totConflict);
     //w.shutdown(normal);
-    dir.close();
+    iwc = new IndexWriterConfig().setOpenMode(IndexWriterConfig.OpenMode.APPEND);
+    ((ConcurrentMergeScheduler) iwc.getMergeScheduler()).setMaxMergesAndThreads(8+5, 8);
+    final IndexWriter forceMergeW = new IndexWriter(FSDirectory.open(indexPath), iwc);
+    long startForceMergems = System.currentTimeMillis();
+    forceMergeW.forceMerge(1);
+    long endForceMergems = System.currentTimeMillis();
+    forceMergeW.close();
+    System.out.println("forceMerge took " + (endForceMergems - startForceMergems) + " ms");
   }
 }

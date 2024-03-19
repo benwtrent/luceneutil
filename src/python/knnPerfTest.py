@@ -28,16 +28,17 @@ LUCENE_CHECKOUT = 'candidate'
 VALUES = {
     #'ndoc': (10000, 100000, 1000000),
     #'ndoc': (10000, 100000, 200000, 500000),
-    'ndoc': (10000, 100000, 200000),
+    'ndoc': (500_000, ),
     #'ndoc': (100000,),
     #'maxConn': (32, 64, 96),
-    'maxConn': (64, ),
+    'maxConn': (16, ),
     #'beamWidthIndex': (250, 500),
-    'beamWidthIndex': (250, ),
+    'beamWidthIndex': (200, ),
     #'fanout': (20, 100, 250)
     'fanout': (0,),
-    #'topK': (10,),
-    #'niter': (10,),
+    #'filterSelectivity': (0.006, 0.0059, 0.0058, 0.0057, 0.0056, 0.0055, 0.0054, 0.0053),
+    #'topK': (500,),
+    #'niter': (1000,),
 }
 
 def advance(ix, values):
@@ -61,10 +62,9 @@ def run_knn_benchmark(checkout, values):
     #dim = 768
     #doc_vectors = '%s/data/enwiki-20120502-lines-1k-mpnet.vec' % constants.BASE_DIR
     #query_vectors = '%s/luceneutil/tasks/vector-task-mpnet.vec' % constants.BASE_DIR
-    dim = 384
-    doc_vectors = '%s/data/enwiki-20120502-lines-1k-minilm.vec' % constants.BASE_DIR
-    query_vectors = '%s/luceneutil/tasks/vector-task-minilm.vec' % constants.BASE_DIR
-    #dim = 300
+    dim = 1024
+    doc_vectors = '%s/util/wiki1024en.train' % constants.BASE_DIR
+    query_vectors = '%s/util/wiki1024en.test' % constants.BASE_DIR
     #doc_vectors = '%s/data/enwiki-20120502-lines-1k-300d.vec' % constants.BASE_DIR
     #query_vectors = '%s/luceneutil/tasks/vector-task-300d.vec' % constants.BASE_DIR
     #dim = 256
@@ -97,9 +97,13 @@ def run_knn_benchmark(checkout, values):
             '-docs', doc_vectors,
             '-reindex',
             '-search', query_vectors,
-            # '-numMergeThread', '8', '-numMergeWorker', '8',
-            # '-forceMerge',
-            '-quiet']
+            '-quantize',
+            #'-randomCommits',
+            #'-numMergeWorker', '8',
+            '-numMergeWorker', '8', '-numMergeThread', '8',
+            '-forceMerge',
+            '-quiet',
+            ]
         #print(this_cmd)
         subprocess.run(this_cmd)
 
