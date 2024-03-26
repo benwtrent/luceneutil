@@ -35,7 +35,8 @@ VALUES = {
     #'beamWidthIndex': (250, 500),
     'beamWidthIndex': (200, ),
     #'fanout': (20, 100, 250)
-    'fanout': (0,),
+    #'addTopK': (0,5,10,50,100),
+    #'bits': (7,),
     #'filterSelectivity': (0.006, 0.0059, 0.0058, 0.0057, 0.0056, 0.0055, 0.0054, 0.0053),
     #'topK': (500,),
     #'niter': (1000,),
@@ -62,9 +63,9 @@ def run_knn_benchmark(checkout, values):
     #dim = 768
     #doc_vectors = '%s/data/enwiki-20120502-lines-1k-mpnet.vec' % constants.BASE_DIR
     #query_vectors = '%s/luceneutil/tasks/vector-task-mpnet.vec' % constants.BASE_DIR
-    dim = 1024
-    doc_vectors = '%s/util/wiki1024en.train' % constants.BASE_DIR
-    query_vectors = '%s/util/wiki1024en.test' % constants.BASE_DIR
+    dim = 768
+    doc_vectors = '%s/util/wiki768.train' % constants.BASE_DIR
+    query_vectors = '%s/util/wiki768.test' % constants.BASE_DIR
     #doc_vectors = '%s/data/enwiki-20120502-lines-1k-300d.vec' % constants.BASE_DIR
     #query_vectors = '%s/luceneutil/tasks/vector-task-300d.vec' % constants.BASE_DIR
     #dim = 256
@@ -97,8 +98,10 @@ def run_knn_benchmark(checkout, values):
             '-docs', doc_vectors,
             '-reindex',
             '-search', query_vectors,
-            '-quantize',
+            #'-quantize',
+            #'-confidenceInterval', '0.9990244',
             #'-randomCommits',
+            '-metric', 'mip',
             #'-numMergeWorker', '8',
             '-numMergeWorker', '8', '-numMergeThread', '8',
             '-forceMerge',

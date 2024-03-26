@@ -45,7 +45,7 @@ import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.lucene99.Lucene99Codec;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
-import org.apache.lucene.codecs.lucene99.Lucene99HnswScalarInt4QuantizedVectorsFormat;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.document.Document;
@@ -96,11 +96,12 @@ public class KnnGraphTester {
 
   private static final String KNN_FIELD = "knn";
   private static final String ID_FIELD = "id";
-  private static final double WRITER_BUFFER_MB = 1994d;
+  private static final double WRITER_BUFFER_MB = 1d;
 
   private int numDocs;
   private int dim;
   private int topK;
+  private int addTopK;
   private int numIters;
   private int fanout;
   private Path indexPath;
@@ -110,6 +111,7 @@ public class KnnGraphTester {
   private int reindexTimeMsec;
   private int beamWidth;
   private int maxConn;
+  private byte bits;
   private boolean quantize;
   private int numMergeThread;
   private int numMergeWorker;
@@ -117,6 +119,7 @@ public class KnnGraphTester {
   private VectorSimilarityFunction similarityFunction;
   private VectorEncoding vectorEncoding;
   private FixedBitSet matchDocs;
+  private Float confidenceInterval;
   private float selectivity;
   private boolean prefilter;
   private boolean randomCommits;
@@ -135,6 +138,8 @@ public class KnnGraphTester {
     selectivity = 1f;
     prefilter = false;
     randomCommits = false;
+    bits = 7;
+    confidenceInterval = null;
   }
 
   public static void main(String... args) throws Exception {
@@ -245,6 +250,27 @@ public class KnnGraphTester {
               throw new IllegalArgumentException("-encoding can be 'byte' or 'float32' only");
           }
           break;
+        case "-bits":
+          if (iarg == args.length - 1) {
+            throw new IllegalArgumentException("-bits requires a following byte");
+          }
+          bits = (byte)Integer.parseInt(args[++iarg]);
+          if (bits < 1 || bits > 8) {
+            throw new IllegalArgumentException("-bits must be between 1 and 8");
+          }
+          break;
+        case "-confidenceInterval":
+          if (iarg == args.length - 1) {
+            throw new IllegalArgumentException("-confidenceInterval requires a following byte");
+          }
+          confidenceInterval = Float.parseFloat(args[++iarg]);
+          break;
+        case "-addTopK":
+          if (iarg == args.length - 1) {
+            throw new IllegalArgumentException("-addTopK requires a following number");
+          }
+          addTopK = Integer.parseInt(args[++iarg]);
+          break;
         case "-metric":
           String metric = args[++iarg];
           switch (metric) {
@@ -342,6 +368,9 @@ public class KnnGraphTester {
   }
 
   private String formatIndexPath(Path docsPath) {
+    if (quantize) {
+      return docsPath.getFileName() + "-" + maxConn + "-" + beamWidth + "-" + bits + ".index";
+    }
     return docsPath.getFileName() + "-" + maxConn + "-" + beamWidth + ".index";
   }
 
@@ -369,7 +398,7 @@ public class KnnGraphTester {
     //if (iwc.getMergeScheduler() instanceof ConcurrentMergeScheduler && numMergeWorker > 1) {
     //  ((ConcurrentMergeScheduler) iwc.getMergeScheduler()).setMaxMergesAndThreads(numMergeWorker+5, numMergeWorker);
     //}
-    iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize));
+    iwc.setCodec(getCodec(maxConn, beamWidth, exec, confidenceInterval, numMergeWorker, quantize, bits));
     if (quiet == false) {
       // not a quiet place!
       iwc.setInfoStream(new PrintStreamInfoStream(System.out));
@@ -464,6 +493,7 @@ public class KnnGraphTester {
       throws IOException {
     TopDocs[] results = new TopDocs[numIters];
     long elapsed, totalCpuTime, totalVisited = 0;
+    int topK = this.topK + addTopK;
     ExecutorService executorService = Executors.newFixedThreadPool(8);
     try (FileChannel input = FileChannel.open(queryPath)) {
       VectorReader targetReader = VectorReader.create(input, dim, vectorEncoding);
@@ -798,10 +828,7 @@ public class KnnGraphTester {
 
   private int createIndex(Path docsPath, Path indexPath) throws IOException {
     IndexWriterConfig iwc = new IndexWriterConfig().setOpenMode(IndexWriterConfig.OpenMode.CREATE);
-    //if (iwc.getMergeScheduler() instanceof ConcurrentMergeScheduler && numMergeWorker > 1) {
-    //  ((ConcurrentMergeScheduler) iwc.getMergeScheduler()).setMaxMergesAndThreads(numMergeWorker+5, numMergeWorker);
-    //}
-    iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize));
+    iwc.setCodec(getCodec(maxConn, beamWidth, exec, confidenceInterval, numMergeWorker, quantize, bits));
     // iwc.setMergePolicy(NoMergePolicy.INSTANCE);
     iwc.setRAMBufferSizeMB(WRITER_BUFFER_MB);
     iwc.setUseCompoundFile(false);
@@ -848,13 +875,13 @@ public class KnnGraphTester {
     return (int) TimeUnit.NANOSECONDS.toMillis(elapsed);
   }
 
-  private static Codec getCodec(int maxConn, int beamWidth, ExecutorService exec, int numMergeWorker, boolean quantize) {
+  private static Codec getCodec(int maxConn, int beamWidth, ExecutorService exec, Float confidenceInterval, int numMergeWorker, boolean quantize, byte bits) {
     if (exec == null) {
       return new Lucene99Codec() {
         @Override
         public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
           return quantize ?
-            new Lucene99HnswScalarInt4QuantizedVectorsFormat(maxConn, beamWidth) :
+            new Lucene99HnswScalarQuantizedVectorsFormat(maxConn, beamWidth, 1, bits, false, confidenceInterval, null) :
             new Lucene99HnswVectorsFormat(maxConn, beamWidth, numMergeWorker, null);
         }
       };
@@ -863,7 +890,7 @@ public class KnnGraphTester {
         @Override
         public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
           return quantize ?
-            new Lucene99HnswScalarInt4QuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, exec) :
+            new Lucene99HnswScalarQuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, bits, false, confidenceInterval, exec) :
             new Lucene99HnswVectorsFormat(maxConn, beamWidth, numMergeWorker, exec);
         }
       };
