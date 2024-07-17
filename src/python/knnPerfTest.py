@@ -22,21 +22,22 @@ import constants
 
 # Where the version of Lucene is that will be tested. Expected to be in the base dir above luceneutil.
 #LUCENE_CHECKOUT = 'baseline'
-LUCENE_CHECKOUT = 'candidate'
+LUCENE_CHECKOUT = 'baseline'
 
 # test parameters. This script will run KnnGraphTester on every combination of these parameters
 VALUES = {
     #'ndoc': (10000, 100000, 1000000),
     #'ndoc': (10000, 100000, 200000, 500000),
-    'ndoc': (10000, 100000, 200000),
+    'ndoc': (1_000_000,),
     #'ndoc': (100000,),
     #'maxConn': (32, 64, 96),
-    'maxConn': (64, ),
+    'maxConn': (16, ),
     #'beamWidthIndex': (250, 500),
     'beamWidthIndex': (250, ),
-    #'fanout': (20, 100, 250)
-    'fanout': (0,),
-    #'topK': (10,),
+    #'fanout': (250,)
+    'fanout': (0,10,50,100),
+    #'quantizeBits': (8,),
+    #'topK': (100,),
     #'niter': (10,),
 }
 
@@ -61,9 +62,9 @@ def run_knn_benchmark(checkout, values):
     #dim = 768
     #doc_vectors = '%s/data/enwiki-20120502-lines-1k-mpnet.vec' % constants.BASE_DIR
     #query_vectors = '%s/luceneutil/tasks/vector-task-mpnet.vec' % constants.BASE_DIR
-    dim = 384
-    doc_vectors = '%s/data/enwiki-20120502-lines-1k-minilm.vec' % constants.BASE_DIR
-    query_vectors = '%s/luceneutil/tasks/vector-task-minilm.vec' % constants.BASE_DIR
+    dim = 1024
+    doc_vectors = '%s/util/wiki1024en.train' % constants.BASE_DIR
+    query_vectors = '%s/util/wiki1024en.test' % constants.BASE_DIR
     #dim = 300
     #doc_vectors = '%s/data/enwiki-20120502-lines-1k-300d.vec' % constants.BASE_DIR
     #query_vectors = '%s/luceneutil/tasks/vector-task-300d.vec' % constants.BASE_DIR
@@ -76,10 +77,12 @@ def run_knn_benchmark(checkout, values):
     #doc_vectors = '%s/data/cohere-wikipedia-768.vec' % constants.BASE_DIR
     #query_vectors = '%s/data/cohere-wikipedia-queries-768.vec' % constants.BASE_DIR
     cp = benchUtil.classPathToString(benchUtil.getClassPath(checkout))
-    cmd = [constants.JAVA_EXE, '-cp', cp,
+    jfr = f"-agentpath:/Users/benjamintrent/Downloads/async-profiler-2.9-macos/build/libasyncProfiler.so=start,event=wall,file=candidate-7-768-wall.jfr"
+    cmd = [constants.JAVA_EXE, '-Xms31g', '-Xmx31g', '-XX:+HeapDumpOnOutOfMemoryError', '-cp', cp,
            '--add-modules', 'jdk.incubator.vector',
            '-Dorg.apache.lucene.store.MMapDirectory.enableMemorySegments=false',
            'knn.KnnGraphTester']
+    print(cmd)
     print("recall\tlatency\tnDoc\tfanout\tmaxConn\tbeamWidth\tvisited\tindex ms")
     while advance(indexes, values):
         pv = {}
@@ -100,10 +103,11 @@ def run_knn_benchmark(checkout, values):
         this_cmd = cmd + args + [
             '-dim', str(dim),
             '-docs', doc_vectors,
-            '-reindex',
+            #'-reindex',
+            #'-forceMerge',
+            #'-quantizeCompress',
             '-search', query_vectors,
-            # '-numMergeThread', '8', '-numMergeWorker', '8',
-            # '-forceMerge',
+            '-numMergeThread', '8', '-numMergeWorker', '8',
             '-quiet']
         #print(this_cmd)
         subprocess.run(this_cmd)

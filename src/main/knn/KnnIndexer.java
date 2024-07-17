@@ -34,7 +34,7 @@ import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
 public class KnnIndexer {
-  private static final double WRITER_BUFFER_MB = 1994d;
+  private static final double WRITER_BUFFER_MB = 2994d;
 
   Path docsPath;
   Path indexPath;

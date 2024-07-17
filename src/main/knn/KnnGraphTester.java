@@ -359,9 +359,9 @@ public class KnnGraphTester {
             matchDocs = generateRandomBitSet(numDocs, selectivity);
           }
           if (outputPath != null) {
-            testSearch(indexPath, queryPath, outputPath, null);
+            testSearch(indexPath, queryPath, outputPath, null, null);
           } else {
-            testSearch(indexPath, queryPath, null, getNN(docVectorsPath, queryPath));
+            testSearch(indexPath, queryPath, null, docVectorsPath, getNN(docVectorsPath, queryPath));
           }
           break;
         case "-stats":
@@ -490,7 +490,7 @@ public class KnnGraphTester {
   }
 
   @SuppressForbidden(reason = "Prints stuff")
-  private void testSearch(Path indexPath, Path queryPath, Path outputPath, int[][] nn)
+  private void testSearch(Path indexPath, Path queryPath, Path outputPath, Path docVectorsPath, int[][] nn)
       throws IOException {
     TopDocs[] results = new TopDocs[numIters];
     long elapsed, totalCpuTime, totalVisited = 0;
@@ -603,6 +603,7 @@ public class KnnGraphTester {
           selectivity,
           prefilter ? "pre-filter" : "post-filter");
     }
+    //getAvgScoreError(results, docVectorsPath, queryPath);
   }
 
   private static TopDocs doKnnVectorQuery(
@@ -622,6 +623,49 @@ public class KnnGraphTester {
       totalMatches += compareNN(nn[i], results[i]);
     }
     return totalMatches / (float) totalResults;
+  }
+
+  private float getAvgScoreError(TopDocs[] results, Path docPath, Path queryPath) throws IOException {
+    try (FileChannel in = FileChannel.open(docPath);
+         FileChannel qIn = FileChannel.open(queryPath)) {
+      VectorReader docReader = VectorReader.create(in, dim, VectorEncoding.FLOAT32);
+      VectorReader queryReader = VectorReader.create(qIn, dim, VectorEncoding.FLOAT32);
+      float errorSum = 0;
+      for (int i = 0; i < numIters; i++) {
+        // get docIds in order
+        TopDocs td = results[i];
+        // make a copy of scoreDocs
+        ScoreDoc[] scoreDocs = new ScoreDoc[td.scoreDocs.length];
+        System.arraycopy(td.scoreDocs, 0, scoreDocs, 0, td.scoreDocs.length);
+        // sort by docId ascending
+        Arrays.sort(scoreDocs, (a, b) -> Integer.compare(a.doc, b.doc));
+        // get scores
+        float[] scores = new float[td.scoreDocs.length];
+        int[] docIds = new int[td.scoreDocs.length];
+        for (int j = 0; j < scoreDocs.length; j++) {
+          docIds[j] = scoreDocs[j].doc;
+          scores[j] = scoreDocs[j].score;
+        }
+        float[] query = queryReader.next();
+        int curDocId = -1;
+        for (int j = 0; j < scoreDocs.length; j++) {
+          int desiredDocId = docIds[j];
+          float approxScore = scores[j];
+          float[] doc = null;
+          // iterate docReader until we find the desired docId
+          while (curDocId < desiredDocId) {
+            curDocId++;
+            doc = docReader.next();
+          }
+          float d = similarityFunction.compare(query, doc);
+          //System.out.println("Approx score: " + approxScore + ", actual score: " + d + ", absdiff: " + Math.abs(approxScore - d));
+          errorSum += Math.abs(approxScore - d);
+        }
+        docReader.reset();
+      }
+      System.out.println("Average score error: " + errorSum / (numIters * topK));
+      return errorSum / (numIters * topK);
+    }
   }
 
   private int compareNN(int[] expected, TopDocs results) {
@@ -829,7 +873,7 @@ public class KnnGraphTester {
     public Weight createWeight(IndexSearcher searcher, ScoreMode scoreMode, float boost)
         throws IOException {
       return new ConstantScoreWeight(this, boost) {
-        Scorer scorer = new ConstantScoreScorer(this, score(), scoreMode, new BitSetIterator(docs, cardinality));
+        Scorer scorer = new ConstantScoreScorer(score(), scoreMode, new BitSetIterator(docs, cardinality));
         @Override
         public ScorerSupplier scorerSupplier(LeafReaderContext context) throws IOException {
           return new ScorerSupplier() {
