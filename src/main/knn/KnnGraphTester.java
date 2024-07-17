@@ -86,8 +86,6 @@ import org.apache.lucene.util.PrintStreamInfoStream;
 import org.apache.lucene.util.SuppressForbidden;
 import org.apache.lucene.util.hnsw.HnswGraph;
 import org.apache.lucene.util.hnsw.NeighborQueue;
-//TODO Lucene may make these unavailable, we should pull in this from hppc directly
-import org.apache.lucene.internal.hppc.IntIntHashMap;
 
 /**
  * For testing indexing and search performance of a knn-graph
@@ -391,7 +389,7 @@ public class KnnGraphTester {
         System.out.printf("Leaf %d has %d layers\n", context.ord, knnValues.numLevels());
         System.out.printf("Leaf %d has %d documents\n", context.ord, leafReader.maxDoc());
         printGraphFanout(knnValues, leafReader.maxDoc());
-        printGraphConnectedNess(knnValues);
+        //printGraphConnectedNess(knnValues);
       }
     }
   }
@@ -410,35 +408,6 @@ public class KnnGraphTester {
       iw.forceMerge(1);
     }
     System.out.println("Force merge done in: " + (System.currentTimeMillis() - start) + " ms");
-  }
-
-  @SuppressForbidden(reason = "Prints stuff")
-  private void printGraphConnectedNess(HnswGraph knnValues) throws IOException {
-    int numLevels = knnValues.numLevels();
-    for (int level = numLevels - 1; level >= 0; level--) {
-      HnswGraph.NodesIterator nodesIterator = knnValues.getNodesOnLevel(level);
-      int numNodesOnLayer = nodesIterator.size();
-      IntIntHashMap connectedNodes = new IntIntHashMap(numNodesOnLayer);
-      // Start at entry point and search all nodes on this level
-      int entryPoint = knnValues.entryNode();
-      Deque<Integer> stack = new ArrayDeque<>();
-      stack.push(entryPoint);
-      while (!stack.isEmpty()) {
-        int node = stack.pop();
-        if (connectedNodes.containsKey(node)) {
-          continue;
-        }
-        connectedNodes.put(node, 1);
-        knnValues.seek(level, node);
-        int friendOrd;
-        while ((friendOrd = knnValues.nextNeighbor()) != NO_MORE_DOCS) {
-          stack.push(friendOrd);
-        }
-      }
-      System.out.printf(
-        "Graph level=%d size=%d, connectedness=%.2f\n",
-        level, numNodesOnLayer, connectedNodes.size() / (float) numNodesOnLayer);
-    }
   }
 
   @SuppressForbidden(reason = "Prints stuff")
