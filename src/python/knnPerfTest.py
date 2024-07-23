@@ -35,7 +35,7 @@ VALUES = {
     #'beamWidthIndex': (250, 500),
     'beamWidthIndex': (250, ),
     #'fanout': (250,)
-    'fanout': (0,10,50,100),
+    #'fanout': (0,10,50,100),
     #'quantizeBits': (8,),
     #'topK': (100,),
     #'niter': (10,),
@@ -63,8 +63,8 @@ def run_knn_benchmark(checkout, values):
     #doc_vectors = '%s/data/enwiki-20120502-lines-1k-mpnet.vec' % constants.BASE_DIR
     #query_vectors = '%s/luceneutil/tasks/vector-task-mpnet.vec' % constants.BASE_DIR
     dim = 1024
-    doc_vectors = '%s/util/wiki1024en.train' % constants.BASE_DIR
-    query_vectors = '%s/util/wiki1024en.test' % constants.BASE_DIR
+    doc_vectors = '%s/util/wiki1024enInt8.train' % constants.BASE_DIR
+    query_vectors = '%s/util/wiki1024enInt8.test' % constants.BASE_DIR
     #dim = 300
     #doc_vectors = '%s/data/enwiki-20120502-lines-1k-300d.vec' % constants.BASE_DIR
     #query_vectors = '%s/luceneutil/tasks/vector-task-300d.vec' % constants.BASE_DIR
@@ -78,7 +78,7 @@ def run_knn_benchmark(checkout, values):
     #query_vectors = '%s/data/cohere-wikipedia-queries-768.vec' % constants.BASE_DIR
     cp = benchUtil.classPathToString(benchUtil.getClassPath(checkout))
     jfr = f"-agentpath:/Users/benjamintrent/Downloads/async-profiler-2.9-macos/build/libasyncProfiler.so=start,event=wall,file=candidate-7-768-wall.jfr"
-    cmd = [constants.JAVA_EXE, '-Xms31g', '-Xmx31g', '-XX:+HeapDumpOnOutOfMemoryError', '-cp', cp,
+    cmd = [constants.JAVA_EXE, '-Xms4g', '-Xmx4g', '-XX:+HeapDumpOnOutOfMemoryError', '-cp', cp,
            '--add-modules', 'jdk.incubator.vector',
            '-Dorg.apache.lucene.store.MMapDirectory.enableMemorySegments=false',
            'knn.KnnGraphTester']
@@ -103,12 +103,15 @@ def run_knn_benchmark(checkout, values):
         this_cmd = cmd + args + [
             '-dim', str(dim),
             '-docs', doc_vectors,
-            #'-reindex',
-            #'-forceMerge',
-            #'-quantizeCompress',
+            '-reindex',
+            '-forceMerge',
+            '-encoding', 'byte',
+            '-quantizeCompress',
             '-search', query_vectors,
             '-numMergeThread', '8', '-numMergeWorker', '8',
-            '-quiet']
+            '-metric', 'mip',
+            '-quiet'
+        ]
         #print(this_cmd)
         subprocess.run(this_cmd)
 

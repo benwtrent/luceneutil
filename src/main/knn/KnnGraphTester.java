@@ -68,6 +68,7 @@ import org.apache.lucene.search.ConstantScoreScorer;
 import org.apache.lucene.search.ConstantScoreWeight;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
+import org.apache.lucene.search.KnnByteVectorQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.QueryVisitor;
 import org.apache.lucene.search.ScoreDoc;
@@ -465,7 +466,11 @@ public class KnnGraphTester {
     long elapsed, totalCpuTime, totalVisited = 0;
     ExecutorService executorService = Executors.newFixedThreadPool(8);
     try (FileChannel input = FileChannel.open(queryPath)) {
-      VectorReader targetReader = VectorReader.create(input, dim, vectorEncoding);
+      VectorReader targetReader = VectorReader.create(queryPath.toString(), input, dim, vectorEncoding);
+      VectorReaderByte targetReaderByte = null;
+      if (targetReader instanceof VectorReaderByte b) {
+        targetReaderByte = b;
+      }
       if (quiet == false) {
         System.out.println("running " + numIters + " targets; topK=" + topK + ", fanout=" + fanout);
       }
@@ -479,31 +484,48 @@ public class KnnGraphTester {
         Query bitSetQuery = prefilter ? new BitSetQuery(matchDocs) : null;
         for (int i = 0; i < numIters; i++) {
           // warm up
-          float[] target = targetReader.next();
-          if (prefilter) {
-            doKnnVectorQuery(searcher, KNN_FIELD, target, topK, fanout, bitSetQuery);
+          if (vectorEncoding.equals(VectorEncoding.BYTE)) {
+            byte[] target = targetReaderByte.nextBytes();
+            if (prefilter) {
+              doKnnByteVectorQuery(searcher, KNN_FIELD, target, topK, fanout, bitSetQuery);
+            } else {
+              doKnnByteVectorQuery(searcher, KNN_FIELD, target, (int) (topK / selectivity), fanout, null);
+            }
           } else {
-            doKnnVectorQuery(searcher, KNN_FIELD, target, (int) (topK / selectivity), fanout, null);
+            float[] target = targetReader.next();
+            if (prefilter) {
+              doKnnVectorQuery(searcher, KNN_FIELD, target, topK, fanout, bitSetQuery);
+            } else {
+              doKnnVectorQuery(searcher, KNN_FIELD, target, (int) (topK / selectivity), fanout, null);
+            }
           }
         }
         targetReader.reset();
         start = System.nanoTime();
         cpuTimeStartNs = bean.getCurrentThreadCpuTime();
         for (int i = 0; i < numIters; i++) {
-          float[] target = targetReader.next();
-          if (prefilter) {
-            results[i] = doKnnVectorQuery(searcher, KNN_FIELD, target, topK, fanout, bitSetQuery);
-          } else {
-            results[i] =
-                doKnnVectorQuery(
-                    searcher, KNN_FIELD, target, (int) (topK / selectivity), fanout, null);
-
-            if (matchDocs != null) {
-              results[i].scoreDocs =
-                  Arrays.stream(results[i].scoreDocs)
-                      .filter(scoreDoc -> matchDocs.get(scoreDoc.doc))
-                      .toArray(ScoreDoc[]::new);
+          if (vectorEncoding.equals(VectorEncoding.BYTE)) {
+            byte[] target = targetReaderByte.nextBytes();
+            if (prefilter) {
+              results[i] = doKnnByteVectorQuery(searcher, KNN_FIELD, target, topK, fanout, bitSetQuery);
+            } else {
+              results[i] = doKnnByteVectorQuery(searcher, KNN_FIELD, target, (int) (topK / selectivity), fanout, null);
             }
+          } else {
+            float[] target = targetReader.next();
+            if (prefilter) {
+              results[i] = doKnnVectorQuery(searcher, KNN_FIELD, target, topK, fanout, bitSetQuery);
+            } else {
+              results[i] =
+                doKnnVectorQuery(
+                  searcher, KNN_FIELD, target, (int) (topK / selectivity), fanout, null);
+            }
+          }
+          if (prefilter == false && matchDocs != null) {
+            results[i].scoreDocs =
+                Arrays.stream(results[i].scoreDocs)
+                    .filter(scoreDoc -> matchDocs.get(scoreDoc.doc))
+                    .toArray(ScoreDoc[]::new);
           }
         }
         totalCpuTime =
@@ -583,6 +605,14 @@ public class KnnGraphTester {
     return new TopDocs(new TotalHits(profiledQuery.totalVectorCount(), docs.totalHits.relation), docs.scoreDocs);
   }
 
+  private static TopDocs doKnnByteVectorQuery(
+    IndexSearcher searcher, String field, byte[] vector, int k, int fanout, Query filter)
+    throws IOException {
+    ProfiledKnnByteVectorQuery profiledQuery = new ProfiledKnnByteVectorQuery(field, vector, k, fanout, filter);
+    TopDocs docs = searcher.search(profiledQuery, k);
+    return new TopDocs(new TotalHits(profiledQuery.totalVectorCount(), docs.totalHits.relation), docs.scoreDocs);
+  }
+
   private float checkResults(TopDocs[] results, int[][] nn) {
     int totalMatches = 0;
     int totalResults = results.length * topK;
@@ -597,8 +627,8 @@ public class KnnGraphTester {
   private float getAvgScoreError(TopDocs[] results, Path docPath, Path queryPath) throws IOException {
     try (FileChannel in = FileChannel.open(docPath);
          FileChannel qIn = FileChannel.open(queryPath)) {
-      VectorReader docReader = VectorReader.create(in, dim, VectorEncoding.FLOAT32);
-      VectorReader queryReader = VectorReader.create(qIn, dim, VectorEncoding.FLOAT32);
+      VectorReader docReader = VectorReader.create(docPath.toString(), in, dim, VectorEncoding.FLOAT32);
+      VectorReader queryReader = VectorReader.create(queryPath.toString(), qIn, dim, VectorEncoding.FLOAT32);
       float errorSum = 0;
       for (int i = 0; i < numIters; i++) {
         // get docIds in order
@@ -666,15 +696,20 @@ public class KnnGraphTester {
 
   private int[][] getNN(Path docPath, Path queryPath) throws IOException {
     // look in working directory for cached nn file
-    String hash = Integer.toString(Objects.hash(docPath, queryPath, numDocs, numIters, topK, similarityFunction.ordinal()), 36);
+    String hash = Integer.toString(Objects.hash(docPath, queryPath, numDocs, numIters, topK), 36);
     String nnFileName = "nn-" + hash + ".bin";
     Path nnPath = Paths.get(nnFileName);
-    if (Files.exists(nnPath) && isNewer(nnPath, docPath, queryPath) && selectivity == 1f) {
+    if (Files.exists(nnPath) selectivity == 1f) {
       return readNN(nnPath);
     } else {
       // TODO: enable computing NN from high precision vectors when
       // checking low-precision recall
-      int[][] nn = computeNN(docPath, queryPath, vectorEncoding);
+      int[][] nn;
+      if (vectorEncoding.equals(VectorEncoding.BYTE)) {
+        nn = computeNNBytes(docPath, queryPath);
+      } else {
+        nn = computeNN(docPath, queryPath);
+      }
       if (selectivity == 1f) {
         writeNN(nn, nnPath);
       }
@@ -734,7 +769,42 @@ public class KnnGraphTester {
     return bitSet;
   }
 
-  private int[][] computeNN(Path docPath, Path queryPath, VectorEncoding encoding)
+  private int[][] computeNNBytes(Path docPath, Path queryPath) throws IOException {
+    int[][] result = new int[numIters][];
+    if (quiet == false) {
+      System.out.println("computing true nearest neighbors of " + numIters + " target vectors");
+    }
+    try (FileChannel in = FileChannel.open(docPath);
+         FileChannel qIn = FileChannel.open(queryPath)) {
+      VectorReaderByte docReader = (VectorReaderByte)VectorReader.create(docPath.toString(), in, dim, VectorEncoding.BYTE);
+      VectorReaderByte queryReader = (VectorReaderByte)VectorReader.create(queryPath.toString(), qIn, dim, VectorEncoding.BYTE);
+      for (int i = 0; i < numIters; i++) {
+        byte[] query = queryReader.nextBytes();
+        NeighborQueue queue = new NeighborQueue(topK, false);
+        for (int j = 0; j < numDocs; j++) {
+          byte[] doc = docReader.nextBytes();
+          float d = similarityFunction.compare(query, doc);
+          if (matchDocs == null || matchDocs.get(j)) {
+            queue.insertWithOverflow(j, d);
+          }
+        }
+        docReader.reset();
+        result[i] = new int[topK];
+        for (int k = topK - 1; k >= 0; k--) {
+          result[i][k] = queue.topNode();
+          queue.pop();
+          // System.out.print(" " + n);
+        }
+        if (quiet == false && (i + 1) % 10 == 0) {
+          System.out.print(" " + (i + 1));
+          System.out.flush();
+        }
+      }
+    }
+    return result;
+  }
+
+  private int[][] computeNN(Path docPath, Path queryPath)
       throws IOException {
     int[][] result = new int[numIters][];
     if (quiet == false) {
@@ -742,8 +812,8 @@ public class KnnGraphTester {
     }
     try (FileChannel in = FileChannel.open(docPath);
          FileChannel qIn = FileChannel.open(queryPath)) {
-      VectorReader docReader = VectorReader.create(in, dim, encoding);
-      VectorReader queryReader = VectorReader.create(qIn, dim, encoding);
+      VectorReader docReader = VectorReader.create(docPath.toString(), in, dim, VectorEncoding.FLOAT32);
+      VectorReader queryReader = VectorReader.create(queryPath.toString(), qIn, dim, VectorEncoding.FLOAT32);
       for (int i = 0; i < numIters; i++) {
         float[] query = queryReader.next();
         NeighborQueue queue = new NeighborQueue(topK, false);
@@ -797,6 +867,35 @@ public class KnnGraphTester {
         "Usage: TestKnnGraph [-reindex] [-search {queryfile}|-stats|-check] [-docs {datafile}] [-niter N] [-fanout N] [-maxConn N] [-beamWidth N] [-filterSelectivity N] [-prefilter]";
     System.err.println(error);
     System.exit(1);
+  }
+
+  private static class ProfiledKnnByteVectorQuery extends KnnByteVectorQuery {
+    private final Query filter;
+    private final int k;
+    private final int fanout;
+    private final String field;
+    private final byte[] target;
+    private long totalVectorCount;
+
+    ProfiledKnnByteVectorQuery(String field, byte[] target, int k, int fanout, Query filter) {
+      super(field, target, k + fanout, filter);
+      this.field = field;
+      this.target = target;
+      this.k = k;
+      this.fanout = fanout;
+      this.filter = filter;
+    }
+
+    @Override
+    protected TopDocs mergeLeafResults(TopDocs[] perLeafResults) {
+      TopDocs td = TopDocs.merge(k, perLeafResults);
+      totalVectorCount = td.totalHits.value;
+      return td;
+    }
+
+    long totalVectorCount() {
+      return totalVectorCount;
+    }
   }
 
   private static class ProfiledKnnFloatVectorQuery extends KnnFloatVectorQuery {

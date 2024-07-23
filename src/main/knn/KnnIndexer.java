@@ -88,7 +88,7 @@ public class KnnIndexer {
         if (docsStartIndex > 0) {
           seekToStartDoc(in, dim, vectorEncoding, docsStartIndex);
         }
-        VectorReader vectorReader = VectorReader.create(in, dim, vectorEncoding);
+        VectorReader vectorReader = VectorReader.create(docsPath.toString(), in, dim, vectorEncoding);
         for (int i = 0; i < numDocs; i++) {
           Document doc = new Document();
           switch (vectorEncoding) {

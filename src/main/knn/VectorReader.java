@@ -28,13 +28,16 @@ public abstract class VectorReader {
   final float[] target;
   final ByteBuffer bytes;
   final FileChannel input;
+  String inputName;
 
-  static VectorReader create(FileChannel input, int dim, VectorEncoding vectorEncoding) {
+  static VectorReader create(String inputName, FileChannel input, int dim, VectorEncoding vectorEncoding) {
     int bufferSize = dim * vectorEncoding.byteSize;
-    return switch (vectorEncoding) {
+    VectorReader reader = switch (vectorEncoding) {
       case BYTE -> new VectorReaderByte(input, dim, bufferSize);
       case FLOAT32 -> new VectorReaderFloat32(input, dim, bufferSize);
     };
+    reader.inputName = inputName;
+    return reader;
   }
 
   VectorReader(FileChannel input, int dim, int bufferSize) {
@@ -48,7 +51,8 @@ public abstract class VectorReader {
   }
 
   protected final void readNext() throws IOException {
-    if (this.input.read(bytes) < target.length) {
+    int bytesRead = this.input.read(bytes);
+    if (bytesRead < bytes.capacity()) {
       this.input.position(0);
       this.input.read(bytes);
     }
