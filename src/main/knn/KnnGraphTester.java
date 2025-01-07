@@ -47,7 +47,7 @@ import java.util.concurrent.TimeUnit;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsReader;
-import org.apache.lucene.codecs.lucene100.Lucene100Codec;
+import org.apache.lucene.codecs.lucene101.Lucene101Codec;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat;
 import org.apache.lucene.codecs.lucene101.Lucene101BinaryQuantizedVectorsFormat;
 import org.apache.lucene.codecs.lucene101.Lucene101HnswBinaryQuantizedVectorsFormat;
@@ -145,9 +145,10 @@ public class KnnGraphTester {
   private boolean randomCommits;
   private float overSample;
   private boolean parentJoin = false;
+  private boolean hnsw = true;
   private Path parentJoinMetaFile;
 
-  private KnnGraphTester() {
+  KnnGraphTester() {
     // set defaults
     numDocs = 1000;
     numIters = 1000;
@@ -207,6 +208,22 @@ public class KnnGraphTester {
                   "Operation " + arg + " requires a following pathname");
             }
             queryPath = Paths.get(args[++iarg]);
+          }
+          break;
+        case "-indexKind":
+          if (iarg == args.length - 1) {
+            throw new IllegalArgumentException("-indexKind requires a following pathname");
+          }
+          String indexKind = args[++iarg];
+          switch (indexKind) {
+            case "hnsw":
+              hnsw = true;
+              break;
+            case "flat":
+              hnsw = false;
+              break;
+            default:
+              throw new IllegalArgumentException("-indexKind can be 'hnsw' or 'flat' only");
           }
           break;
         case "-fanout":
@@ -752,6 +769,7 @@ public class KnnGraphTester {
     }
     ProfiledKnnFloatVectorQuery profiledQuery = new ProfiledKnnFloatVectorQuery(field, vector, k, fanout, filter);
     TopDocs docs = searcher.search(profiledQuery, k);
+    //System.out.println(Arrays.toString(docs.scoreDocs));
     return new TopDocs(new TotalHits(profiledQuery.totalVectorCount(), docs.totalHits.relation()), docs.scoreDocs);
   }
 
@@ -1037,7 +1055,7 @@ public class KnnGraphTester {
     }
   }
 
-  static Codec getCodec(int maxConn, int beamWidth, ExecutorService exec, int numMergeWorker, boolean quantize, int quantizeBits, boolean quantizeCompress) {
+  Codec getCodec(int maxConn, int beamWidth, ExecutorService exec, int numMergeWorker, boolean quantize, int quantizeBits, boolean quantizeCompress) {
     final boolean compress;
     if (quantizeBits != 4) {
       compress = false;
@@ -1045,12 +1063,12 @@ public class KnnGraphTester {
       compress = quantizeCompress;
     }
     if (exec == null) {
-      return new Lucene100Codec() {
+      return new Lucene101Codec() {
         @Override
         public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
           if (quantize && quantizeBits != 32) {
             if (quantizeBits == 1) {
-              return new Lucene101HnswBinaryQuantizedVectorsFormat(maxConn, beamWidth);
+              return hnsw ? new Lucene101HnswBinaryQuantizedVectorsFormat(maxConn, beamWidth) : new Lucene101BinaryQuantizedVectorsFormat();
             }
             return new Lucene99HnswScalarQuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, quantizeBits, compress, 0f, null);
           }
@@ -1058,12 +1076,12 @@ public class KnnGraphTester {
         }
       };
     } else {
-      return new Lucene100Codec() {
+      return new Lucene101Codec() {
         @Override
         public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
           if (quantize) {
             if (quantizeBits == 1 && quantizeBits != 32) {
-              return new Lucene101HnswBinaryQuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, exec);
+              return hnsw ? new Lucene101HnswBinaryQuantizedVectorsFormat(maxConn, beamWidth) : new Lucene101BinaryQuantizedVectorsFormat();
             }
             return new Lucene99HnswScalarQuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, quantizeBits, compress, 0f, exec);
           }
@@ -1128,7 +1146,7 @@ public class KnnGraphTester {
 
     @Override
     protected TopDocs mergeLeafResults(TopDocs[] perLeafResults) {
-      TopDocs td = TopDocs.merge(k, perLeafResults);
+      TopDocs td = TopDocs.merge(k+fanout, perLeafResults);
       totalVectorCount = td.totalHits.value();
       return td;
     }

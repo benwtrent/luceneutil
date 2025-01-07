@@ -45,24 +45,24 @@ PARAMS = {
     #'ndoc': (10000, 100000, 1000000),
     #'ndoc': (10000, 100000, 200000, 500000),
     #'ndoc': (10000, 100000, 200000, 500000),
-    'ndoc': (500_000    ,),
+    # 'ndoc': (500_000,),
     #'ndoc': (100000,),
     #'maxConn': (32, 64, 96),
     #'maxConn': (64, ),
     'maxConn': (16, ),
     #'beamWidthIndex': (250, 500),
     #'beamWidthIndex': (250, ),
-    'beamWidthIndex': (100, ),#150, 200, 250, 500),
-    #'fanout': (20, 100, 250)
+    'beamWidthIndex': (100, ),
+    'fanout': (15,20,30,40,50),
     #'quantize': None,
     'encoding': ('float32',),
     # 'metric': ('angular',),  # default is angular (dot_product)
     #'quantize': (True,),
-    'quantizeBits': (4,),
-    'overSample': (1, ), #1.5, 2, 3, 4, 5),
-    #'fanout': (0,100,200),
-    #'topK': (10,),
-    #'niter': (100,),
+    'quantizeBits': (1,),
+    #'overSample': (1, 1.5, 2, 3, 4, 5),
+    #'fanout': (0,150, 200, 300, 500),
+    'topK': (10,),
+    #'niter': (3000,),
 }
 
 def advance(ix, values):
@@ -77,30 +77,14 @@ def advance(ix, values):
             return True
     return False
 
-def run_knn_benchmark(checkout, values):
+def run_knn_benchmark(checkout, values, dim, doc_vectors, query_vectors, similarity, num_docs):
     indexes = [0] * len(values.keys())
     indexes[-1] = -1
     args = []
-    #dim = 100
-    #doc_vectors = constants.GLOVE_VECTOR_DOCS_FILE
-    #query_vectors = '%s/luceneutil/tasks/vector-task-100d.vec' % constants.BASE_DIR
-    #dim = 768
-    #doc_vectors = '/lucenedata/enwiki/enwiki-20120502-lines-1k-mpnet.vec'
-    #query_vectors = '/lucenedata/enwiki/enwiki-20120502.mpnet.vec'
-    #dim = 384
-    #doc_vectors = '%s/data/enwiki-20120502-lines-1k-minilm.vec' % constants.BASE_DIR
-    #query_vectors = '%s/luceneutil/tasks/vector-task-minilm.vec' % constants.BASE_DIR
-    #dim = 300
-    #doc_vectors = '%s/data/enwiki-20120502-lines-1k-300d.vec' % constants.BASE_DIR
-    #query_vectors = '%s/luceneutil/tasks/vector-task-300d.vec' % constants.BASE_DIR
-    #dim = 256
-    #doc_vectors = '/d/electronics_asin_emb.bin'
-    #query_vectors = '/d/electronics_query_vectors.bin'
-
     # Cohere dataset
-    dim = 384
-    doc_vectors = '%s/util/corpus-quora-E5-small.fvec.flat' % constants.BASE_DIR
-    query_vectors = '%s/util/queries-quora-E5-small.fvec.flat' % constants.BASE_DIR
+    #dim = dims
+    #doc_vectors = '%s/util/corpus-quora-E5-small.fvec.flat' % constants.BASE_DIR
+    #query_vectors = '%s/util/queries-quora-E5-small.fvec.flat' % constants.BASE_DIR
     cp = benchUtil.classPathToString(benchUtil.getClassPath(checkout))
     cmd = constants.JAVA_EXE.split(' ') + ['-cp', cp,
                                            '-Xmx4g', '-Xms4g',
@@ -137,13 +121,15 @@ def run_knn_benchmark(checkout, values):
         this_cmd = cmd + args + [
             '-dim', str(dim),
             '-docs', doc_vectors,
-            '-reindex',
+            '-ndoc', str(num_docs),
+            #'-reindex',
             '-search', query_vectors,
-            '-metric', 'angular',
+            '-metric', similarity,
+            '-indexKind', 'hnsw',
             '-quantizeCompress',
             # '-parentJoin', parentJoin_meta_file,
-            # '-numMergeThread', '8', '-numMergeWorker', '8',
-            '-forceMerge',
+            #'-numMergeThread', '8', '-numMergeWorker', '8',
+            #'-forceMerge',
             #'-stats',
             '-quiet'
         ]
@@ -202,4 +188,8 @@ def run_knn_benchmark(checkout, values):
         print(row_fmt % cols)
 
 
-run_knn_benchmark(LUCENE_CHECKOUT, PARAMS)
+
+run_knn_benchmark(LUCENE_CHECKOUT, PARAMS, 768, '%s/util/wiki768.train' % constants.BASE_DIR, '%s/util/wiki768.test' % constants.BASE_DIR, 'mip', 500_000)
+#run_knn_benchmark(LUCENE_CHECKOUT, PARAMS, 1024, '%s/util/wiki1024en.train' % constants.BASE_DIR, '%s/util/wiki1024en.test' % constants.BASE_DIR, 'angular', 500_000)
+#run_knn_benchmark(LUCENE_CHECKOUT, PARAMS, 384, '%s/data/corpus-quora-E5-small.fvec.flat' % constants.BASE_DIR, '%s/util/queries-quora-E5-small.fvec.flat' % constants.BASE_DIR, 'mip', 500_000)
+#run_knn_benchmark(LUCENE_CHECKOUT, PARAMS, 960, '%s/data/corpus-ann-gist-1M.fvec' % constants.BASE_DIR, '%s/data/queries-ann-gist-1M.fvec' % constants.BASE_DIR, 'mip', 500_000)

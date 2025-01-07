@@ -41,7 +41,7 @@ import static knn.KnnGraphTester.DOCTYPE_PARENT;
 public class KnnIndexer {
   // use smaller ram buffer so we get to merging sooner, making better use of
   // many cores (TODO: use multiple indexing threads):
-  // private static final double WRITER_BUFFER_MB = 1994d;
+  //private static final double WRITER_BUFFER_MB = 1994d;
   private static final double WRITER_BUFFER_MB = 64;
 
   Path docsPath;
