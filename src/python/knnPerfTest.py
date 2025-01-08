@@ -46,20 +46,21 @@ DO_PROFILING = False
 
 # test parameters. This script will run KnnGraphTester on every combination of these parameters
 PARAMS = {
-    'ndoc': (10_000_000,),
+    'ndoc': (100_000,),
     #'ndoc': (10000, 100000, 200000, 500000),
     #'ndoc': (10000, 100000, 200000, 500000),
     #'ndoc': (2_000_000,),
     #'ndoc': (1_000_000,),
     #'ndoc': (50_000,),
     #'maxConn': (32, 64, 96),
-    'maxConn': (32, ),
+    'maxConn': (16, ),
     #'maxConn': (32,),
     #'beamWidthIndex': (250, 500),
-    'beamWidthIndex': (100, ),
+    'beamWidthIndex': (100,),
     #'beamWidthIndex': (50,),
     #'fanout': (20, 100, 250)
-    'fanout': (50,),
+    'fanout': (0, 100),
+    'filterSelectivity': (0.95, 0.90, 0.75, 0.5, 0.25, 0.10, 0.05, 0.025, 0.01),
     #'quantize': None,
     #'quantizeBits': (32, 7, 4),
     'numMergeWorker': (12,),
@@ -73,12 +74,12 @@ PARAMS = {
     'quantizeBits': (32,),
     #'fanout': (0,),
     'topK': (100,),
-    'bp': ('false', 'true'),
+    #'bp': ('false', 'true'),
     #'quantizeCompress': (True, False),
     'quantizeCompress': (True,),
     'queryStartIndex': (0,),   # seek to this start vector before searching, to sample different vectors
-    'forceMerge': (True, False)
-    #'niter': (10,),
+    'forceMerge': (True, ),
+    'niter': (100,),
 }
 
 def advance(ix, values):
@@ -115,9 +116,9 @@ def run_knn_benchmark(checkout, values):
     #query_vectors = '/d/electronics_query_vectors.bin'
 
     # Cohere dataset
-    dim = 768
-    doc_vectors = f"/lucenedata/enwiki/{'cohere-wikipedia'}-docs-{dim}d.vec"
-    query_vectors = f"/lucenedata/enwiki/{'cohere-wikipedia'}-queries-{dim}d.vec"
+    dim = 1024
+    doc_vectors = '%s/util/wiki1024en.train' % constants.BASE_DIR
+    query_vectors = '%s/util/wiki1024en.test' % constants.BASE_DIR
     #parentJoin_meta_file = f"{constants.BASE_DIR}/data/{'cohere-wikipedia'}-metadata.csv"
 
     jfr_output = f'{constants.LOGS_DIR}/knn-perf-test.jfr'
@@ -178,13 +179,14 @@ def run_knn_benchmark(checkout, values):
         this_cmd = cmd + args + [
             '-dim', str(dim),
             '-docs', doc_vectors,
-            '-reindex',
-            '-search-and-stats', query_vectors,
-            '-numIndexThreads', '8',
+            #'-reindex',
+            '-search', query_vectors,
+            '-numIndexThreads', '1',
+            '-prefilter',
             #'-metric', 'mip',
             # '-parentJoin', parentJoin_meta_file,
             # '-numMergeThread', '8', '-numMergeWorker', '8',
-            '-forceMerge',
+            #'-forceMerge',
             #'-stats',
             #'-quiet'
         ]
@@ -213,7 +215,7 @@ def run_knn_benchmark(checkout, values):
 
     # TODO: be more careful when we skip/show headers e.g. if some of the runs involve filtering,
     # turn filterType/selectivity back on for all runs
-    skip_headers = {'selectivity', 'filterType', 'visited'}
+    skip_headers = {'quantized', 'filterType', 'index s', 'index docs/s', 'force merge s', 'num segments', 'index size (MB)', 'vec disk (MB)', 'vec RAM (MB)'}
 
     if '-forceMerge' not in this_cmd:
         skip_headers.add('force merge s')

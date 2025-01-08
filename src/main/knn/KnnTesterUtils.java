@@ -38,6 +38,9 @@ public class KnnTesterUtils {
         // in some degenerate case (like input query has NaN in it?) that causes no results to
         // be returned from HNSW search?
         resultIds[i++] = Integer.parseInt(storedFields.document(doc.doc).get(KnnGraphTester.ID_FIELD));
+        if (doc.doc != resultIds[i-1]) {
+          throw new IllegalStateException("wrong assumption");
+        }
       } else {
         System.out.println("NO_MORE_DOCS!");
       }

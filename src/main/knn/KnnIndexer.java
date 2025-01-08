@@ -41,11 +41,16 @@ import org.apache.lucene.document.Field;
 import org.apache.lucene.index.ConcurrentMergeScheduler;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.LogByteSizeMergePolicy;
+import org.apache.lucene.index.SerialMergeScheduler;
 import org.apache.lucene.index.TieredMergePolicy;
 import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.misc.index.BPReorderingMergePolicy;
 import org.apache.lucene.misc.index.BpVectorReorderer;
+import org.apache.lucene.search.Sort;
+import org.apache.lucene.search.SortField;
+import org.apache.lucene.search.SortedNumericSortField;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.util.PrintStreamInfoStream;
 
@@ -102,15 +107,7 @@ public class KnnIndexer {
     iwc.setMaxFullFlushMergeWaitMillis(0);
 
     // aim for more compact/realistic index:
-    TieredMergePolicy tmp = (TieredMergePolicy) iwc.getMergePolicy();
-    tmp.setFloorSegmentMB(256);
-    // tmp.setSegmentsPerTier(5);
-    if (useBp) {
-      iwc.setMergePolicy(new BPReorderingMergePolicy(iwc.getMergePolicy(), new BpVectorReorderer(KnnGraphTester.KNN_FIELD)));
-    }
-
-    ConcurrentMergeScheduler cms = (ConcurrentMergeScheduler) iwc.getMergeScheduler();
-    // cms.setMaxMergesAndThreads(24, 12);
+    iwc.setMergePolicy(new LogByteSizeMergePolicy());
 
     FieldType fieldType =
         switch (vectorEncoding) {
@@ -221,10 +218,6 @@ public class KnnIndexer {
       // give merges a chance to kick off and finish:
       log("now IndexWriter.commit()");
       iw.commit();
-
-      // wait for running merges to complete -- not sure why this is needed -- IW should wait for merges on close by default
-      cms.sync();
-      log("done ConcurrentMergeScheduler.sync()");
     }
     long elapsed = System.nanoTime() - start;
     log("Indexed %d docs in %d seconds", numDocs, TimeUnit.NANOSECONDS.toSeconds(elapsed));

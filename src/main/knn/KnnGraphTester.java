@@ -37,6 +37,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -62,9 +63,11 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.LogByteSizeMergePolicy;
 import org.apache.lucene.index.SegmentCommitInfo;
 import org.apache.lucene.index.SegmentInfos;
 import org.apache.lucene.index.SegmentReader;
+import org.apache.lucene.index.SerialMergeScheduler;
 import org.apache.lucene.index.StandardDirectoryReader;
 import org.apache.lucene.index.StoredFields;
 import org.apache.lucene.index.VectorEncoding;
@@ -81,6 +84,9 @@ import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.ScoreMode;
 import org.apache.lucene.search.Scorer;
 import org.apache.lucene.search.ScorerSupplier;
+import org.apache.lucene.search.Sort;
+import org.apache.lucene.search.SortField;
+import org.apache.lucene.search.SortedNumericSortField;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.TotalHits;
 import org.apache.lucene.search.Weight;
@@ -110,6 +116,8 @@ import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
  * .../vectors.bin
  */
 public class KnnGraphTester {
+
+  private static final Random RANDOM = new Random(42);
 
   public static final String KNN_FIELD = "knn";
   public static final String ID_FIELD = "id";
@@ -618,6 +626,7 @@ public class KnnGraphTester {
   private double forceMerge() throws IOException {
     IndexWriterConfig iwc = new IndexWriterConfig().setOpenMode(IndexWriterConfig.OpenMode.APPEND);
     iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize, quantizeBits, quantizeCompress));
+    iwc.setMergePolicy(new LogByteSizeMergePolicy());
     System.out.println("Force merge index in " + indexPath);
     long startNS = System.nanoTime();
     try (IndexWriter iw = new IndexWriter(FSDirectory.open(indexPath), iwc)) {
@@ -918,10 +927,10 @@ public class KnnGraphTester {
    */
   private int[][] getExactNN(Path docPath, Path queryPath, int queryStartIndex) throws IOException, InterruptedException {
     // look in working directory for cached nn file
-    String hash = Integer.toString(Objects.hash(docPath, queryPath, numDocs, numQueryVectors, topK, similarityFunction.ordinal(), parentJoin, queryStartIndex), 36);
+    String hash = Integer.toString(Objects.hash(docPath, queryPath, numDocs, numQueryVectors, topK, similarityFunction.ordinal(), parentJoin, queryStartIndex, prefilter ? selectivity : 1f), 36);
     String nnFileName = "nn-" + hash + ".bin";
     Path nnPath = Paths.get(nnFileName);
-    if (Files.exists(nnPath) && isNewer(nnPath, docPath, queryPath) && selectivity == 1f) {
+    if (Files.exists(nnPath) && isNewer(nnPath, docPath, queryPath)) {
       System.out.println("  read pre-cached exact match vectors from cache file \"" + nnPath + "\"");
       return readExactNN(nnPath);
     } else {
@@ -935,9 +944,7 @@ public class KnnGraphTester {
       } else {
         nn = computeExactNN(docPath, queryPath, queryStartIndex);
       }
-      if (selectivity == 1f) {
-        writeExactNN(nn, nnPath);
-      }
+      writeExactNN(nn, nnPath);
       long elapsedMS = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNS); // ns -> ms
       System.out.printf("took %.3f sec to compute brute-force exact matches\n", elapsedMS / 1000.);
       return nn;
@@ -987,7 +994,7 @@ public class KnnGraphTester {
   private static FixedBitSet generateRandomBitSet(int size, float selectivity) {
     FixedBitSet bitSet = new FixedBitSet(size);
     for (int i = 0; i < size; i++) {
-      if (Math.random() < selectivity) {
+      if (RANDOM.nextFloat() < selectivity) {
         bitSet.set(i);
       } else {
         bitSet.clear(i);
@@ -1033,11 +1040,11 @@ public class KnnGraphTester {
           VectorReaderByte docReader = (VectorReaderByte)VectorReader.create(in, dim, VectorEncoding.BYTE, 0);
           for (int j = 0; j < numDocs; j++) {
             byte[] doc = docReader.nextBytes();
-            float d = similarityFunction.compare(query, doc);
-            if (d == 0f) {
-              System.out.println("WARNING: identical doc and query vector (distance=0)");
-            }
             if (matchDocs == null || matchDocs.get(j)) {
+              float d = similarityFunction.compare(query, doc);
+              if (d == 0f) {
+                System.out.println("WARNING: identical doc and query vector (distance=0)");
+              }
               queue.insertWithOverflow(j, d);
             }
           }
@@ -1119,8 +1126,8 @@ public class KnnGraphTester {
         VectorReader docReader = (VectorReader) VectorReader.create(in, dim, VectorEncoding.FLOAT32, 0);
         for (int j = 0; j < numDocs; j++) {
           float[] doc = docReader.next();
-          float d = similarityFunction.compare(query, doc);
           if (matchDocs == null || matchDocs.get(j)) {
+            float d = similarityFunction.compare(query, doc);
             if (d == 0f) {
               System.out.println("WARNING: identical doc and query vector (distance=0)");
             }
@@ -1296,13 +1303,12 @@ public class KnnGraphTester {
     public Weight createWeight(IndexSearcher searcher, ScoreMode scoreMode, float boost)
         throws IOException {
       return new ConstantScoreWeight(this, boost) {
-        Scorer scorer = new ConstantScoreScorer(score(), scoreMode, new BitSetIterator(docs, cardinality));
         @Override
         public ScorerSupplier scorerSupplier(LeafReaderContext context) throws IOException {
           return new ScorerSupplier() {
             @Override
             public Scorer get(long leadCost) throws IOException {
-              return scorer;
+              return new ConstantScoreScorer(score(), scoreMode, new BitSetIterator(docs, cardinality));
             }
 
             @Override
