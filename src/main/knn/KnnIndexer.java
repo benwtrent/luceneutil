@@ -44,8 +44,6 @@ import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.TieredMergePolicy;
 import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.index.VectorSimilarityFunction;
-import org.apache.lucene.misc.index.BPReorderingMergePolicy;
-import org.apache.lucene.misc.index.BpVectorReorderer;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.util.PrintStreamInfoStream;
 
@@ -103,11 +101,9 @@ public class KnnIndexer {
 
     // aim for more compact/realistic index:
     TieredMergePolicy tmp = (TieredMergePolicy) iwc.getMergePolicy();
-    tmp.setFloorSegmentMB(256);
+    tmp.setFloorSegmentMB(2);
+    tmp.setMaxMergedSegmentMB(1024 * 5);
     // tmp.setSegmentsPerTier(5);
-    if (useBp) {
-      iwc.setMergePolicy(new BPReorderingMergePolicy(iwc.getMergePolicy(), new BpVectorReorderer(KnnGraphTester.KNN_FIELD)));
-    }
 
     ConcurrentMergeScheduler cms = (ConcurrentMergeScheduler) iwc.getMergeScheduler();
     // cms.setMaxMergesAndThreads(24, 12);

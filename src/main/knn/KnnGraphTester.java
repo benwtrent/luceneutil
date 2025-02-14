@@ -86,6 +86,7 @@ import org.apache.lucene.search.ConstantScoreWeight;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnByteVectorQuery;
 import org.apache.lucene.search.KnnFloatVectorQuery;
+import org.apache.lucene.search.OptimisticKnnVectorQuery;
 import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.QueryVisitor;
@@ -783,7 +784,7 @@ public class KnnGraphTester {
       try (MMapDirectory dir = new MMapDirectory(indexPath)) {
         dir.setPreload((x, ctx) -> x.endsWith(".vec") || x.endsWith(".veq"));
         try (DirectoryReader reader = DirectoryReader.open(dir)) {
-          IndexSearcher searcher = new IndexSearcher(reader);
+          IndexSearcher searcher = new IndexSearcher(reader, executorService);
           numDocs = reader.maxDoc();
           // warm up
           for (int i = 0; i < numQueryVectors; i++) {
@@ -857,7 +858,7 @@ public class KnnGraphTester {
       double reindexSec = reindexTimeMsec / 1000.0;
       System.out.printf(
           Locale.ROOT,
-          "SUMMARY: %5.3f\t%5.3f\t%d\t%d\t%d\t%d\t%d\t%s\t%d\t%.2f\t%.2f\t%.2f\t%d\t%.2f\t%.2f\t%s\t%5.3f\t%5.3f\n",
+          "SUMMARY: %5.3f\t%5.3f\t%d\t%d\t%d\t%d\t%d\t%s\t%d\t%.2f\t%.2f\t%.2f\t%d\t%.2f\t%.3f\t%s\t%5.3f\t%5.3f\n",
           recall,
           totalCpuTimeMS / (float) numQueryVectors,
           numDocs,
@@ -929,13 +930,18 @@ public class KnnGraphTester {
   private int compareNN(int[] expected, int[] results) {
     int matched = 0;
     Set<Integer> expectedSet = new HashSet<>();
+    Set<Integer> alreadySeen = new HashSet<>();
     for (int i = 0; i < topK; i++) {
       expectedSet.add(expected[i]);
     }
     for (int docId : results) {
+      if (alreadySeen.contains(docId)) {
+        throw new IllegalStateException("duplicate docId=" + docId);
+      }
       if (expectedSet.contains(docId)) {
         ++matched;
       }
+      alreadySeen.add(docId);
     }
     return matched;
   }
@@ -947,10 +953,10 @@ public class KnnGraphTester {
    */
   private int[][] getExactNN(Path docPath, Path indexPath, Path queryPath, int queryStartIndex) throws IOException, InterruptedException {
     // look in working directory for cached nn file
-    String hash = Integer.toString(Objects.hash(docPath, queryPath, numDocs, numQueryVectors, topK, similarityFunction.ordinal(), parentJoin, queryStartIndex), 36);
+    String hash = Integer.toString(Objects.hash(docPath, indexPath, queryPath, numDocs, numQueryVectors, topK, similarityFunction.ordinal(), parentJoin, queryStartIndex, prefilter ? selectivity : 1f, prefilter ? randomSeed : 0f), 36);
     String nnFileName = "nn-" + hash + ".bin";
     Path nnPath = Paths.get(nnFileName);
-    if (Files.exists(nnPath) && isNewer(nnPath, docPath, queryPath) && selectivity == 1f) {
+    if (Files.exists(nnPath) && isNewer(nnPath, docPath, queryPath)) {
       System.out.println("  read pre-cached exact match vectors from cache file \"" + nnPath + "\"");
       return readExactNN(nnPath);
     } else {
@@ -964,9 +970,7 @@ public class KnnGraphTester {
       } else {
         nn = computeExactNN(queryPath, queryStartIndex);
       }
-      if (selectivity == 1f) {
-        writeExactNN(nn, nnPath);
-      }
+      writeExactNN(nn, nnPath);
       long elapsedMS = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNS); // ns -> ms
       System.out.printf("took %.3f sec to compute brute-force exact matches\n", elapsedMS / 1000.);
       return nn;
@@ -1243,7 +1247,7 @@ public class KnnGraphTester {
     }
   }
 
-  private static class ProfiledKnnFloatVectorQuery extends KnnFloatVectorQuery {
+  private static class ProfiledKnnFloatVectorQuery extends OptimisticKnnVectorQuery {
     private final Query filter;
     private final int k;
     private final int fanout;
@@ -1259,11 +1263,16 @@ public class KnnGraphTester {
       this.fanout = fanout;
       this.filter = filter;
     }
+    @Override
+    public Query rewrite(IndexSearcher indexSearcher) throws IOException {
+      totalVectorCount = 0;
+      return super.rewrite(indexSearcher);
+    }
 
     @Override
     protected TopDocs mergeLeafResults(TopDocs[] perLeafResults) {
       TopDocs td = TopDocs.merge(k, perLeafResults);
-      totalVectorCount = td.totalHits.value();
+      totalVectorCount += td.totalHits.value();
       return td;
     }
 
