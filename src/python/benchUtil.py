@@ -1731,6 +1731,7 @@ def getClassPath(checkout):
     raise RuntimeError('can\'t find core JAR file in %s' % ('%s/lucene/core/build/libs' % path))
 
   cp.append(core_jar_file)
+  cp.append('%s/lucene/sandbox/build/libs/*' % path)
   cp.append('%s/lucene/sandbox/build/classes/java/main' % path)
   cp.append('%s/lucene/misc/build/classes/java/main' % path)
   cp.append('%s/lucene/facet/build/classes/java/main' % path)

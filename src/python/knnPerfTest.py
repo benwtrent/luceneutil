@@ -46,7 +46,7 @@ DO_PROFILING = False
 
 # test parameters. This script will run KnnGraphTester on every combination of these parameters
 PARAMS = {
-    'ndoc': (10_000_000,),
+    'ndoc': (100_000,),
     #'ndoc': (10000, 100000, 200000, 500000),
     #'ndoc': (10000, 100000, 200000, 500000),
     #'ndoc': (2_000_000,),
@@ -59,7 +59,7 @@ PARAMS = {
     'beamWidthIndex': (100, ),
     #'beamWidthIndex': (50,),
     #'fanout': (20, 100, 250)
-    'fanout': (50,),
+    'fanout': (0,),
     #'quantize': None,
     #'quantizeBits': (32, 7, 4),
     'numMergeWorker': (12,),
@@ -73,11 +73,14 @@ PARAMS = {
     'quantizeBits': (32,),
     #'fanout': (0,),
     'topK': (100,),
-    'bp': ('false', 'true'),
+    'indexKind': ('hnsw',),
+    'overSample': (5,),
+    'nprobe': (10,),
+    'postings_length': (1600, ),
     #'quantizeCompress': (True, False),
     'quantizeCompress': (True,),
     'queryStartIndex': (0,),   # seek to this start vector before searching, to sample different vectors
-    'forceMerge': (True, False)
+    'forceMerge': (True,)
     #'niter': (10,),
 }
 
@@ -116,8 +119,8 @@ def run_knn_benchmark(checkout, values):
 
     # Cohere dataset
     dim = 768
-    doc_vectors = f"/lucenedata/enwiki/{'cohere-wikipedia'}-docs-{dim}d.vec"
-    query_vectors = f"/lucenedata/enwiki/{'cohere-wikipedia'}-queries-{dim}d.vec"
+    doc_vectors = f"{constants.BASE_DIR}/data/cohere-wikipedia-docs-{dim}d.vec"
+    query_vectors = f"{constants.BASE_DIR}/data/cohere-wikipedia-queries-{dim}d.vec"
     #parentJoin_meta_file = f"{constants.BASE_DIR}/data/{'cohere-wikipedia'}-metadata.csv"
 
     jfr_output = f'{constants.LOGS_DIR}/knn-perf-test.jfr'
@@ -178,13 +181,13 @@ def run_knn_benchmark(checkout, values):
         this_cmd = cmd + args + [
             '-dim', str(dim),
             '-docs', doc_vectors,
-            '-reindex',
-            '-search-and-stats', query_vectors,
+            #'-reindex',
+            '-search', query_vectors,
             '-numIndexThreads', '8',
-            #'-metric', 'mip',
+            '-metric', 'mip',
             # '-parentJoin', parentJoin_meta_file,
             # '-numMergeThread', '8', '-numMergeWorker', '8',
-            '-forceMerge',
+            #'-forceMerge',
             #'-stats',
             #'-quiet'
         ]
@@ -213,7 +216,7 @@ def run_knn_benchmark(checkout, values):
 
     # TODO: be more careful when we skip/show headers e.g. if some of the runs involve filtering,
     # turn filterType/selectivity back on for all runs
-    skip_headers = {'selectivity', 'filterType', 'visited'}
+    skip_headers = {'selectivity', 'filterType', 'maxConn', 'beamWidth' }
 
     if '-forceMerge' not in this_cmd:
         skip_headers.add('force merge s')
@@ -221,7 +224,7 @@ def run_knn_benchmark(checkout, values):
     print_fixed_width(all_results, skip_headers)
 
 def print_fixed_width(all_results, columns_to_skip):
-    header = 'recall\tlatency (ms)\tnDoc\ttopK\tfanout\tmaxConn\tbeamWidth\tquantized\tvisited\tindex s\tindex docs/s\tforce merge s\tnum segments\tindex size (MB)\tselectivity\tfilterType\tvec disk (MB)\tvec RAM (MB)'
+    header = 'recall\tlatency(ms)\tnProbe\tnDoc\ttopK\tfanout\tmaxConn\tbeamWidth\tquantized\tvisited\tindex s\tindex docs/s\tforce merge s\tnum segments\tindex size (MB)\tselectivity\tfilterType\tvec_disk(MB)\tvec_RAM(MB)\toverSample'
 
     # crazy logic to make everything fixed width so rendering in fixed width font "aligns":
     headers = header.split('\t')

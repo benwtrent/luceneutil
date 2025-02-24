@@ -54,6 +54,9 @@ import org.apache.lucene.codecs.lucene101.Lucene101Codec;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
+import org.apache.lucene.sandbox.codecs.quantization.IVFVectorsFormat;
+import org.apache.lucene.sandbox.search.knn.IVFKnnFloatVectorQuery;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.index.ByteVectorValues;
 import org.apache.lucene.index.CodecReader;
@@ -121,6 +124,11 @@ import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
  */
 public class KnnGraphTester {
 
+  enum IndexType {
+    HNSW,
+    IVF
+  }
+
   public static final String KNN_FIELD = "knn";
   public static final String ID_FIELD = "id";
   private static final String INDEX_DIR = "knnIndices";
@@ -137,6 +145,8 @@ public class KnnGraphTester {
   private int topK;
   private int numQueryVectors;
   private int fanout;  // this increases the internal HNSW search queue (search only) from topK to topK + fanout
+  private int nprobe;
+  private int vectorPostingsLength;
   private Path indexPath;
   private boolean quiet;
   private boolean reindex;
@@ -169,6 +179,8 @@ public class KnnGraphTester {
   private int queryStartIndex;
   // whether to reorder the index using binary partitioning
   private boolean useBp;
+  private IndexType indexType;
+  private float overSample;
 
   private KnnGraphTester() {
     // set defaults
@@ -176,6 +188,9 @@ public class KnnGraphTester {
     numQueryVectors = 1000;
     dim = 256;
     topK = 100;
+    nprobe = -1;
+    vectorPostingsLength = 10_000;
+    indexType = IndexType.HNSW;
     numMergeThread = 1;
     numMergeWorker = 1;
     fanout = topK;
@@ -189,6 +204,7 @@ public class KnnGraphTester {
     quantizeCompress = false;
     numIndexThreads = 8;
     queryStartIndex = 0;
+    overSample = 1f;
   }
 
   private static FileChannel getVectorFileChannel(Path path, int dim, VectorEncoding vectorEncoding) throws IOException {
@@ -240,6 +256,43 @@ public class KnnGraphTester {
                   "Operation " + arg + " requires a following pathname");
             }
             queryPath = Paths.get(args[++iarg]);
+          }
+          break;
+        case "-indexKind":
+          if (iarg == args.length - 1) {
+            throw new IllegalArgumentException("-indexKind requires a following pathname");
+          }
+          String indexKind = args[++iarg].toLowerCase().trim();
+          switch (indexKind) {
+            case "hnsw":
+              indexType = IndexType.HNSW;
+              break;
+            case "ivf":
+              indexType = IndexType.IVF;
+              break;
+            default:
+              throw new IllegalArgumentException("-indexKind can be 'hnsw' or 'ivf' only");
+          }
+          break;
+        case "-nprobe":
+          if (iarg == args.length - 1) {
+            throw new IllegalArgumentException("-nprobe requires a following number");
+          }
+          nprobe = Integer.parseInt(args[++iarg]);
+          break;
+        case "-postings_length":
+          if (iarg == args.length - 1) {
+            throw new IllegalArgumentException("-postings_length requires a following number");
+          }
+          vectorPostingsLength = Integer.parseInt(args[++iarg]);
+          break;
+        case "-overSample":
+          if (iarg == args.length - 1) {
+            throw new IllegalArgumentException("-overSample requires a following float");
+          }
+          overSample = Float.parseFloat(args[++iarg]);
+          if (overSample < 1) {
+            throw new IllegalArgumentException("-overSample must be >= 1");
           }
           break;
         case "-fanout":
@@ -446,7 +499,7 @@ public class KnnGraphTester {
       reindexTimeMsec = new KnnIndexer(
         docVectorsPath,
         indexPath,
-        getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize, quantizeBits, quantizeCompress),
+        getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize, quantizeBits, quantizeCompress, indexType, vectorPostingsLength),
         numIndexThreads,
         vectorEncoding,
         dim,
@@ -621,19 +674,24 @@ public class KnnGraphTester {
 
   private String formatIndexPath(Path docsPath) {
     List<String> suffix = new ArrayList<>();
-    suffix.add(Integer.toString(maxConn));
-    suffix.add(Integer.toString(beamWidth));
-    if (useBp) {
-      suffix.add("bp");
-    }
-    if (quantize) {
-      suffix.add(Integer.toString(quantizeBits));
-      if (quantizeCompress == true) {
-        suffix.add("-compressed");
+    if (indexType == IndexType.IVF) {
+      suffix.add("ivf");
+      suffix.add(Integer.toString(vectorPostingsLength));
+    } else {
+      suffix.add(Integer.toString(maxConn));
+      suffix.add(Integer.toString(beamWidth));
+      if (useBp) {
+        suffix.add("bp");
       }
-    }
-    if (parentJoin) {
-      suffix.add("parentJoin");
+      if (quantize) {
+        suffix.add(Integer.toString(quantizeBits));
+        if (quantizeCompress == true) {
+          suffix.add("-compressed");
+        }
+      }
+      if (parentJoin) {
+        suffix.add("parentJoin");
+      }
     }
     return INDEX_DIR + "/" + docsPath.getFileName() + "-" + String.join("-", suffix) + ".index";
   }
@@ -663,7 +721,7 @@ public class KnnGraphTester {
   @SuppressForbidden(reason = "Prints stuff")
   private double forceMerge() throws IOException {
     IndexWriterConfig iwc = new IndexWriterConfig().setOpenMode(IndexWriterConfig.OpenMode.APPEND);
-    iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize, quantizeBits, quantizeCompress));
+    iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize, quantizeBits, quantizeCompress, indexType, vectorPostingsLength));
     System.out.println("Force merge index in " + indexPath);
     long startNS = System.nanoTime();
     try (IndexWriter iw = new IndexWriter(FSDirectory.open(indexPath), iwc)) {
@@ -767,6 +825,8 @@ public class KnnGraphTester {
     TopDocs[] results = new TopDocs[numQueryVectors];
     int[][] resultIds = new int[numQueryVectors][];
     long elapsed, totalCpuTimeMS, totalVisited = 0;
+    int topK = (overSample > 1) ? (int) (this.topK * overSample) : this.topK;
+    int fanout = (overSample > 1) ? (int) (this.fanout * overSample) : this.fanout;
     ExecutorService executorService = Executors.newFixedThreadPool(8);
     try (FileChannel input = getVectorFileChannel(queryPath, dim, vectorEncoding)) {
       long queryPathSizeInBytes = input.size();
@@ -857,9 +917,10 @@ public class KnnGraphTester {
       double reindexSec = reindexTimeMsec / 1000.0;
       System.out.printf(
           Locale.ROOT,
-          "SUMMARY: %5.3f\t%5.3f\t%d\t%d\t%d\t%d\t%d\t%s\t%d\t%.2f\t%.2f\t%.2f\t%d\t%.2f\t%.2f\t%s\t%5.3f\t%5.3f\n",
+          "SUMMARY: %5.3f\t%5.3f\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%d\t%.2f\t%.2f\t%.2f\t%d\t%.2f\t%.2f\t%s\t%5.3f\t%5.3f\t%5.3f\n",
           recall,
           totalCpuTimeMS / (float) numQueryVectors,
+          nprobe,
           numDocs,
           topK,
           fanout,
@@ -875,7 +936,8 @@ public class KnnGraphTester {
           selectivity,
           prefilter ? "pre-filter" : "post-filter",
           vectorDiskSizeBytes / 1024. / 1024.,
-          vectorRAMSizeBytes / 1024. / 1024.);
+          vectorRAMSizeBytes / 1024. / 1024.,
+          overSample);
     }
   }
 
@@ -899,14 +961,14 @@ public class KnnGraphTester {
     return new TopDocs(new TotalHits(profiledQuery.totalVectorCount(), docs.totalHits.relation()), docs.scoreDocs);
   }
 
-  private static TopDocs doKnnVectorQuery(
-      IndexSearcher searcher, String field, float[] vector, int k, int fanout, boolean prefilter, Query filter, boolean isParentJoinQuery)
+  private TopDocs doKnnVectorQuery(
+      IndexSearcher searcher, String field, float[] vector, int k, int fanout,  boolean prefilter, Query filter, boolean isParentJoinQuery)
       throws IOException {
     if (isParentJoinQuery) {
       ParentJoinBenchmarkQuery parentJoinQuery = new ParentJoinBenchmarkQuery(vector, null, k);
       return searcher.search(parentJoinQuery, k);
     }
-    ProfiledKnnFloatVectorQuery profiledQuery = new ProfiledKnnFloatVectorQuery(field, vector, k, fanout, filter);
+    ProfiledKnnFloatVectorQuery profiledQuery = new ProfiledKnnFloatVectorQuery(field, vector, k, fanout, filter, nprobe);
     Query query = prefilter ? profiledQuery : new BooleanQuery.Builder()
             .add(profiledQuery, BooleanClause.Occur.MUST)
             .add(filter, BooleanClause.Occur.FILTER)
@@ -1175,7 +1237,15 @@ public class KnnGraphTester {
     }
   }
 
-  static Codec getCodec(int maxConn, int beamWidth, ExecutorService exec, int numMergeWorker, boolean quantize, int quantizeBits, boolean quantizeCompress) {
+  static Codec getCodec(int maxConn, int beamWidth, ExecutorService exec, int numMergeWorker, boolean quantize, int quantizeBits, boolean quantizeCompress, IndexType indexType, int vectorPostingsLength) {
+    if (indexType == IndexType.IVF) {
+      return new Lucene101Codec() {
+        @Override
+        public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
+          return new IVFVectorsFormat(vectorPostingsLength);
+        }
+      };
+    }
     if (exec == null) {
       return new Lucene101Codec() {
         @Override
@@ -1252,7 +1322,7 @@ public class KnnGraphTester {
     }
   }
 
-  private static class ProfiledKnnFloatVectorQuery extends KnnFloatVectorQuery {
+  private static class ProfiledKnnFloatVectorQuery extends IVFKnnFloatVectorQuery {
     private final Query filter;
     private final int k;
     private final int fanout;
@@ -1260,8 +1330,8 @@ public class KnnGraphTester {
     private final float[] target;
     private long totalVectorCount;
 
-    ProfiledKnnFloatVectorQuery(String field, float[] target, int k, int fanout, Query filter) {
-      super(field, target, k + fanout, filter);
+    ProfiledKnnFloatVectorQuery(String field, float[] target, int k, int fanout, Query filter, int nProbe) {
+      super(field, target, k + fanout, filter, nProbe);
       this.field = field;
       this.target = target;
       this.k = k;
