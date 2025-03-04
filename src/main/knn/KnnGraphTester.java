@@ -54,6 +54,7 @@ import org.apache.lucene.codecs.lucene101.Lucene101Codec;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
+import org.apache.lucene.codecs.lucene102.Lucene102HnswBinaryQuantizedVectorsFormat;
 import org.apache.lucene.sandbox.codecs.quantization.IVFVectorsFormat;
 import org.apache.lucene.sandbox.search.knn.IVFKnnFloatVectorQuery;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
@@ -585,7 +586,9 @@ public class KnnGraphTester {
       // TODO: why is encodingByteSize 4 even for int4/int7 cases?
       double realEncodingByteSize;
       if (quantize) {
-        if (quantizeBits == 4) {
+        if (quantizeBits == 1) {
+          realEncodingByteSize = 1.0/32;
+        } else if (quantizeBits == 4) {
           if (quantizeCompress) {
             realEncodingByteSize = 0.5;
           } else {
@@ -626,7 +629,7 @@ public class KnnGraphTester {
           if (docVectorsPath == null) {
             throw new IllegalArgumentException("missing -docs arg");
           }
-          filterQuery = selectivity == 1f ? new MatchAllDocsQuery() : generateRandomQuery(random, indexPath, numDocs, selectivity);
+          filterQuery = selectivity == 1f ? null : generateRandomQuery(random, indexPath, numDocs, selectivity);
           if (outputPath != null) {
             testSearch(indexPath, queryPath, queryStartIndex, outputPath, null);
           } else {
@@ -969,10 +972,10 @@ public class KnnGraphTester {
       return searcher.search(parentJoinQuery, k);
     }
     ProfiledKnnFloatVectorQuery profiledQuery = new ProfiledKnnFloatVectorQuery(field, vector, k, fanout, filter, nprobe);
-    Query query = prefilter ? profiledQuery : new BooleanQuery.Builder()
+    Query query = prefilter ? profiledQuery : filter != null ? new BooleanQuery.Builder()
             .add(profiledQuery, BooleanClause.Occur.MUST)
             .add(filter, BooleanClause.Occur.FILTER)
-            .build();
+            .build() : profiledQuery;
     TopDocs docs = searcher.search(query, k);
     return new TopDocs(new TotalHits(profiledQuery.totalVectorCount(), docs.totalHits.relation()), docs.scoreDocs);
   }
@@ -1114,10 +1117,10 @@ public class KnnGraphTester {
       try {
         var queryVector = new ConstKnnByteVectorValueSource(query);
         var docVectors = new ByteKnnVectorFieldSource(KNN_FIELD);
-        var query = new BooleanQuery.Builder()
+        Query query = filterQuery != null ? new BooleanQuery.Builder()
                 .add(new FunctionQuery(new ByteVectorSimilarityFunction(similarityFunction, queryVector, docVectors)), BooleanClause.Occur.SHOULD)
                 .add(filterQuery, BooleanClause.Occur.FILTER)
-                .build();
+                .build() : new FunctionQuery(new ByteVectorSimilarityFunction(similarityFunction, queryVector, docVectors));
         var topDocs = searcher.search(query, topK);
         result[queryOrd] = knn.KnnTesterUtils.getResultIds(topDocs, reader.storedFields());
         if ((queryOrd + 1) % 10 == 0) {
@@ -1183,10 +1186,10 @@ public class KnnGraphTester {
       try {
         var queryVector = new ConstKnnFloatValueSource(query);
         var docVectors = new FloatKnnVectorFieldSource(KNN_FIELD);
-        var query = new BooleanQuery.Builder()
+        Query query = filterQuery != null ? new BooleanQuery.Builder()
                 .add(new FunctionQuery(new FloatVectorSimilarityFunction(similarityFunction, queryVector, docVectors)), BooleanClause.Occur.SHOULD)
                 .add(filterQuery, BooleanClause.Occur.FILTER)
-                .build();
+                .build() : new FunctionQuery(new FloatVectorSimilarityFunction(similarityFunction, queryVector, docVectors));
         var topDocs = searcher.search(query, topK);
         result[queryOrd] = knn.KnnTesterUtils.getResultIds(topDocs, reader.storedFields());
         if ((queryOrd + 1) % 10 == 0) {
@@ -1252,7 +1255,7 @@ public class KnnGraphTester {
         public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
           if (quantize) {
             if (quantizeBits == 1) {
-              return new HnswBitVectorsFormat(maxConn, beamWidth, numMergeWorker, null);
+              return new Lucene102HnswBinaryQuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, null);
             } else {
               return new Lucene99HnswScalarQuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, quantizeBits, quantizeCompress, null, null);
             }
@@ -1267,7 +1270,7 @@ public class KnnGraphTester {
         public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
           if (quantize) {
             if (quantizeBits == 1) {
-              return new HnswBitVectorsFormat(maxConn, beamWidth, numMergeWorker, exec);
+              return new Lucene102HnswBinaryQuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, exec);
             } else {
               return new Lucene99HnswScalarQuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, quantizeBits, quantizeCompress, null, exec);
             }
@@ -1347,7 +1350,7 @@ public class KnnGraphTester {
 
     @Override
     protected TopDocs mergeLeafResults(TopDocs[] perLeafResults) {
-      TopDocs td = TopDocs.merge(k, perLeafResults);
+      TopDocs td = super.mergeLeafResults(perLeafResults);
       // merge leaf can happen any number of times during a rewrite
       totalVectorCount += td.totalHits.value();
       return td;

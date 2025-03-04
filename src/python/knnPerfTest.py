@@ -46,7 +46,7 @@ DO_PROFILING = False
 
 # test parameters. This script will run KnnGraphTester on every combination of these parameters
 PARAMS = {
-    'ndoc': (100_000,),
+    'ndoc': (1_000_000,),
     #'ndoc': (10000, 100000, 200000, 500000),
     #'ndoc': (10000, 100000, 200000, 500000),
     #'ndoc': (2_000_000,),
@@ -70,18 +70,17 @@ PARAMS = {
     # 'metric': ('angular',),  # default is angular (dot_product)
     # 'metric': ('mip',),
     #'quantize': (True,),
-    'quantizeBits': (32,),
+    'quantizeBits': (1,),
     #'fanout': (0,),
     'topK': (100,),
-    'indexKind': ('hnsw',),
+    'indexKind': ('ivf',),
     'overSample': (5,),
-    'nprobe': (10,),
-    'postings_length': (1600, ),
+    'nprobe': (5, 10, 20, 30, 40, 50),
+    'postings_length': (512, ),
     #'quantizeCompress': (True, False),
     'quantizeCompress': (True,),
     'queryStartIndex': (0,),   # seek to this start vector before searching, to sample different vectors
-    'forceMerge': (True,)
-    #'niter': (10,),
+    'niter': (100,),
 }
 
 def advance(ix, values):
@@ -123,7 +122,7 @@ def run_knn_benchmark(checkout, values):
     query_vectors = f"{constants.BASE_DIR}/data/cohere-wikipedia-queries-{dim}d.vec"
     #parentJoin_meta_file = f"{constants.BASE_DIR}/data/{'cohere-wikipedia'}-metadata.csv"
 
-    jfr_output = f'{constants.LOGS_DIR}/knn-perf-test.jfr'
+    jfr_output = f'{constants.LOGS_DIR}/knn-perf-ivf-index-building-test.jfr'
 
     cp = benchUtil.classPathToString(benchUtil.getClassPath(checkout) + (f'{constants.BENCH_BASE_DIR}/build',))
     cmd = constants.JAVA_EXE.split(' ') + [
