@@ -46,7 +46,7 @@ DO_PROFILING = False
 
 # test parameters. This script will run KnnGraphTester on every combination of these parameters
 PARAMS = {
-    'ndoc': (1_000_000,),
+    'ndoc': (100_000,),
     #'ndoc': (10000, 100000, 200000, 500000),
     #'ndoc': (10000, 100000, 200000, 500000),
     #'ndoc': (2_000_000,),
@@ -75,8 +75,8 @@ PARAMS = {
     'topK': (100,),
     'indexKind': ('ivf',),
     'overSample': (5,),
-    'nprobe': (5, 10, 20, 30, 40, 50),
-    'postings_length': (512, ),
+    'nprobe': (10,),
+    'postings_length': (1024, ),
     #'quantizeCompress': (True, False),
     'quantizeCompress': (True,),
     'queryStartIndex': (0,),   # seek to this start vector before searching, to sample different vectors
@@ -180,13 +180,14 @@ def run_knn_benchmark(checkout, values):
         this_cmd = cmd + args + [
             '-dim', str(dim),
             '-docs', doc_vectors,
-            #'-reindex',
+            '-reindex',
+            #'-stats',
             '-search', query_vectors,
             '-numIndexThreads', '8',
             '-metric', 'mip',
             # '-parentJoin', parentJoin_meta_file,
             # '-numMergeThread', '8', '-numMergeWorker', '8',
-            #'-forceMerge',
+            '-forceMerge',
             #'-stats',
             #'-quiet'
         ]

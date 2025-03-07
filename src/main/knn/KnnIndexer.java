@@ -24,6 +24,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -117,6 +118,12 @@ public class KnnIndexer {
           case BYTE -> KnnByteVectorField.createFieldType(dim, similarityFunction);
           case FLOAT32 -> KnnFloatVectorField.createFieldType(dim, similarityFunction);
         };
+    iwc.setInfoStream(new PrintStreamInfoStream(System.out) {
+      @Override
+      public boolean isEnabled(String component) {
+        return Objects.equals(component, "IVF");
+      }
+    });
     if (quiet == false) {
       // iwc.setInfoStream(new PrintStreamInfoStream(System.out));
       System.out.println("creating index in " + indexPath);
