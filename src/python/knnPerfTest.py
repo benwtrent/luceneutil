@@ -34,7 +34,7 @@ from common import getLuceneDirFromGradleProperties
 
 
 # nocommit
-DO_PROFILING = False
+DO_PROFILING = True
 
 # e.g. to compile KnnIndexer:
 #
@@ -46,7 +46,7 @@ DO_PROFILING = False
 
 # test parameters. This script will run KnnGraphTester on every combination of these parameters
 PARAMS = {
-    'ndoc': (100_000,),
+    'ndoc': (500_000,),
     #'ndoc': (10000, 100000, 200000, 500000),
     #'ndoc': (10000, 100000, 200000, 500000),
     #'ndoc': (2_000_000,),
@@ -73,7 +73,7 @@ PARAMS = {
     'quantizeBits': (1,),
     #'fanout': (0,),
     'topK': (100,),
-    'indexKind': ('ivf',),
+    'indexType': ('ivf',),
     'overSample': (5,),
     'nprobe': (10,),
     'postings_length': (1024, ),
@@ -122,7 +122,7 @@ def run_knn_benchmark(checkout, values):
     query_vectors = f"{constants.BASE_DIR}/data/cohere-wikipedia-queries-{dim}d.vec"
     #parentJoin_meta_file = f"{constants.BASE_DIR}/data/{'cohere-wikipedia'}-metadata.csv"
 
-    jfr_output = f'{constants.LOGS_DIR}/knn-perf-ivf-index-building-test.jfr'
+    jfr_output = f'{constants.LOGS_DIR}/knn-perf-ivf-index-panama-no-quant-opt-building-test.jfr'
 
     cp = benchUtil.classPathToString(benchUtil.getClassPath(checkout) + (f'{constants.BENCH_BASE_DIR}/build',))
     cmd = constants.JAVA_EXE.split(' ') + [

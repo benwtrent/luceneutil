@@ -260,6 +260,7 @@ public class KnnGraphTester {
           }
           break;
         case "-indexKind":
+        case "-indexType":
           if (iarg == args.length - 1) {
             throw new IllegalArgumentException("-indexKind requires a following pathname");
           }
