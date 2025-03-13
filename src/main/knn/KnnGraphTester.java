@@ -109,6 +109,8 @@ import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.NamedThreadFactory;
 import org.apache.lucene.util.SuppressForbidden;
 import org.apache.lucene.util.hnsw.HnswGraph;
+import org.apache.lucene.util.PrintStreamInfoStream;
+
 
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 //TODO Lucene may make these unavailable, we should pull in this from hppc directly
@@ -125,7 +127,7 @@ import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
  */
 public class KnnGraphTester {
 
-  enum IndexType {
+  public static enum IndexType {
     HNSW,
     IVF
   }
@@ -725,6 +727,12 @@ public class KnnGraphTester {
   @SuppressForbidden(reason = "Prints stuff")
   private double forceMerge() throws IOException {
     IndexWriterConfig iwc = new IndexWriterConfig().setOpenMode(IndexWriterConfig.OpenMode.APPEND);
+    iwc.setInfoStream(new PrintStreamInfoStream(System.out) {
+      @Override
+      public boolean isEnabled(String component) {
+        return Objects.equals(component, "IVF");
+      }
+    });
     iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize, quantizeBits, quantizeCompress, indexType, vectorPostingsLength));
     System.out.println("Force merge index in " + indexPath);
     long startNS = System.nanoTime();
