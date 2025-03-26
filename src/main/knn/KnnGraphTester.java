@@ -55,6 +55,7 @@ import org.apache.lucene.codecs.lucene99.Lucene99HnswScalarQuantizedVectorsForma
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.codecs.lucene102.Lucene102HnswBinaryQuantizedVectorsFormat;
+import org.apache.lucene.codecs.lucene102.Lucene102BinaryQuantizedVectorsFormat;
 import org.apache.lucene.sandbox.codecs.quantization.IVFVectorsFormat;
 import org.apache.lucene.sandbox.search.knn.IVFKnnFloatVectorQuery;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
@@ -129,6 +130,7 @@ public class KnnGraphTester {
 
   public static enum IndexType {
     HNSW,
+    FLAT,
     IVF
   }
 
@@ -273,6 +275,9 @@ public class KnnGraphTester {
               break;
             case "ivf":
               indexType = IndexType.IVF;
+              break;
+            case "flat":
+              indexType = IndexType.FLAT;
               break;
             default:
               throw new IllegalArgumentException("-indexKind can be 'hnsw' or 'ivf' only");
@@ -680,7 +685,9 @@ public class KnnGraphTester {
 
   private String formatIndexPath(Path docsPath) {
     List<String> suffix = new ArrayList<>();
-    if (indexType == IndexType.IVF) {
+    if (indexType == IndexType.FLAT) {
+      suffix.add("flat");
+    } else if (indexType == IndexType.IVF) {
       suffix.add("ivf");
       suffix.add(Integer.toString(vectorPostingsLength));
     } else {
@@ -1264,6 +1271,9 @@ public class KnnGraphTester {
         public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
           if (quantize) {
             if (quantizeBits == 1) {
+              if (indexType == IndexType.FLAT) {
+                return new Lucene102BinaryQuantizedVectorsFormat();
+              }
               return new Lucene102HnswBinaryQuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, null);
             } else {
               return new Lucene99HnswScalarQuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, quantizeBits, quantizeCompress, null, null);
@@ -1279,6 +1289,9 @@ public class KnnGraphTester {
         public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
           if (quantize) {
             if (quantizeBits == 1) {
+              if (indexType == IndexType.FLAT) {
+                return new Lucene102BinaryQuantizedVectorsFormat();
+              }
               return new Lucene102HnswBinaryQuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, exec);
             } else {
               return new Lucene99HnswScalarQuantizedVectorsFormat(maxConn, beamWidth, numMergeWorker, quantizeBits, quantizeCompress, null, exec);

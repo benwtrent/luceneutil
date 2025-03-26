@@ -43,6 +43,7 @@ import org.apache.lucene.index.ConcurrentMergeScheduler;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.TieredMergePolicy;
+import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.misc.index.BPReorderingMergePolicy;
@@ -94,17 +95,17 @@ public class KnnIndexer {
   public int createIndex() throws IOException, InterruptedException {
     IndexWriterConfig iwc = new IndexWriterConfig().setOpenMode(IndexWriterConfig.OpenMode.CREATE);
     iwc.setCodec(codec);
-    // iwc.setMergePolicy(NoMergePolicy.INSTANCE);
+    iwc.setMergePolicy(NoMergePolicy.INSTANCE);
     iwc.setRAMBufferSizeMB(WRITER_BUFFER_MB);
-    iwc.setUseCompoundFile(false);
+    //iwc.setUseCompoundFile(false);
     // iwc.setMaxBufferedDocs(10000);
 
     // sidestep an apparent IW bug that causes merges kicked off during commit to be aborted on later commit/close instead of waited on, hrmph
     iwc.setMaxFullFlushMergeWaitMillis(0);
 
     // aim for more compact/realistic index:
-    TieredMergePolicy tmp = (TieredMergePolicy) iwc.getMergePolicy();
-    tmp.setFloorSegmentMB(256);
+    //TieredMergePolicy tmp = (TieredMergePolicy) iwc.getMergePolicy();
+    //tmp.setFloorSegmentMB(256);
     // tmp.setSegmentsPerTier(5);
     if (useBp) {
       iwc.setMergePolicy(new BPReorderingMergePolicy(iwc.getMergePolicy(), new BpVectorReorderer(KnnGraphTester.KNN_FIELD)));

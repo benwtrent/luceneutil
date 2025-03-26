@@ -34,7 +34,7 @@ from common import getLuceneDirFromGradleProperties
 
 
 # nocommit
-DO_PROFILING = True
+DO_PROFILING = False
 
 # e.g. to compile KnnIndexer:
 #
@@ -75,8 +75,9 @@ PARAMS = {
     'topK': (100,),
     'indexType': ('ivf',),
     'overSample': (5,),
-    'nprobe': (10,),
-    'postings_length': (1024, ),
+    #'filterSelectivity': (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99),
+    'nprobe': (5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100),
+    'postings_length': (512, ),
     #'quantizeCompress': (True, False),
     'quantizeCompress': (True,),
     'queryStartIndex': (0,),   # seek to this start vector before searching, to sample different vectors
@@ -116,13 +117,21 @@ def run_knn_benchmark(checkout, values):
     #doc_vectors = '/d/electronics_asin_emb.bin'
     #query_vectors = '/d/electronics_query_vectors.bin'
 
+    dim = 384
+    doc_vectors = f"{constants.BASE_DIR}/util/corpus-quora-E5-small.fvec.flat"
+    query_vectors = f"{constants.BASE_DIR}/util/queries-quora-E5-small.fvec.flat"
+
+    #dim = 1024
+    #doc_vectors = f"{constants.BASE_DIR}/util/wiki1024en.train"
+    #query_vectors = f"{constants.BASE_DIR}/util/wiki1024en.test"
+
     # Cohere dataset
-    dim = 768
-    doc_vectors = f"{constants.BASE_DIR}/data/cohere-wikipedia-docs-{dim}d.vec"
-    query_vectors = f"{constants.BASE_DIR}/data/cohere-wikipedia-queries-{dim}d.vec"
+    #dim = 768
+    #doc_vectors = f"{constants.BASE_DIR}/data/cohere-wikipedia-docs-{dim}d.vec"
+    #query_vectors = f"{constants.BASE_DIR}/data/cohere-wikipedia-queries-{dim}d.vec"
     #parentJoin_meta_file = f"{constants.BASE_DIR}/data/{'cohere-wikipedia'}-metadata.csv"
 
-    jfr_output = f'{constants.LOGS_DIR}/knn-perf-ivf-index-panama-no-quant-opt-building-test.jfr'
+    jfr_output = f'{constants.LOGS_DIR}/ivf-search-100-prob-iter-2.jfr'
 
     cp = benchUtil.classPathToString(benchUtil.getClassPath(checkout) + (f'{constants.BENCH_BASE_DIR}/build',))
     cmd = constants.JAVA_EXE.split(' ') + [
@@ -180,14 +189,15 @@ def run_knn_benchmark(checkout, values):
         this_cmd = cmd + args + [
             '-dim', str(dim),
             '-docs', doc_vectors,
-            '-reindex',
+            #'-reindex',
             #'-stats',
+            #'-prefilter',
             '-search', query_vectors,
             '-numIndexThreads', '8',
-            '-metric', 'mip',
+            '-metric', 'angular',
             # '-parentJoin', parentJoin_meta_file,
             # '-numMergeThread', '8', '-numMergeWorker', '8',
-            '-forceMerge',
+            #'-forceMerge',
             #'-stats',
             #'-quiet'
         ]
