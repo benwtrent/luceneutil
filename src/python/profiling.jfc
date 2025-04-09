@@ -33,6 +33,9 @@ Collects only execution and method samples at a low interval
     <setting name="enabled">true</setting>
     <setting name="stackTrace">true</setting>
   </event>
+  <event name="jdk.ObjectCount">
+    <setting name="enabled">true</setting>
+  </event>
 
   <event name="jdk.ObjectAllocationOutsideTLAB">
     <setting name="enabled">true</setting>

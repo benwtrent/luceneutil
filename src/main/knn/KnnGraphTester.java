@@ -85,6 +85,8 @@ import org.apache.lucene.queries.function.valuesource.ConstKnnFloatValueSource;
 import org.apache.lucene.queries.function.valuesource.FloatKnnVectorFieldSource;
 import org.apache.lucene.queries.function.valuesource.FloatVectorSimilarityFunction;
 import org.apache.lucene.search.BooleanClause;
+import org.apache.lucene.misc.index.BPReorderingMergePolicy;
+import org.apache.lucene.misc.index.BpVectorReorderer;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.ConstantScoreScorer;
 import org.apache.lucene.search.ConstantScoreWeight;
@@ -740,6 +742,9 @@ public class KnnGraphTester {
         return Objects.equals(component, "IVF");
       }
     });
+    if (useBp) {
+      iwc.setMergePolicy(new BPReorderingMergePolicy(iwc.getMergePolicy(), new BpVectorReorderer(KnnGraphTester.KNN_FIELD)));
+    }
     iwc.setCodec(getCodec(maxConn, beamWidth, exec, numMergeWorker, quantize, quantizeBits, quantizeCompress, indexType, vectorPostingsLength));
     System.out.println("Force merge index in " + indexPath);
     long startNS = System.nanoTime();
@@ -1032,7 +1037,7 @@ public class KnnGraphTester {
    */
   private int[][] getExactNN(Path docPath, Path indexPath, Path queryPath, int queryStartIndex) throws IOException, InterruptedException {
     // look in working directory for cached nn file
-    String hash = Integer.toString(Objects.hash(docPath, indexPath, queryPath, numDocs, numQueryVectors, topK, similarityFunction.ordinal(), parentJoin, queryStartIndex, prefilter ? selectivity : 1f, prefilter ? randomSeed : 0f), 36);
+    String hash = Integer.toString(Objects.hash(docPath, useBp, indexPath, queryPath, numDocs, numQueryVectors, topK, similarityFunction.ordinal(), parentJoin, queryStartIndex, prefilter ? selectivity : 1f, prefilter ? randomSeed : 0f), 36);
     String nnFileName = "nn-" + hash + ".bin";
     Path nnPath = Paths.get(nnFileName);
     if (Files.exists(nnPath) && isNewer(nnPath, docPath, queryPath)) {
