@@ -34,7 +34,7 @@ from common import getLuceneDirFromGradleProperties
 
 
 # nocommit
-DO_PROFILING = True
+DO_PROFILING = False
 
 # e.g. to compile KnnIndexer:
 #
@@ -46,7 +46,7 @@ DO_PROFILING = True
 
 # test parameters. This script will run KnnGraphTester on every combination of these parameters
 PARAMS = {
-    'ndoc': (500_000,),
+    'ndoc': (1_000_000,),
     #'ndoc': (10000, 100000, 200000, 500000),
     #'ndoc': (10000, 100000, 200000, 500000),
     #'ndoc': (2_000_000,),
@@ -64,8 +64,8 @@ PARAMS = {
     #'fanout': (0, ), # 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500),
     #'quantize': None,
     #'quantizeBits': (32, 7, 4),
-    'numMergeWorker': (1,),
-    'numMergeThread': (1,),
+    #'numMergeWorker': (4,),
+    #'numMergeThread': (4,),
     #'numMergeWorker': (1,),
     #'numMergeThread': (1,),
     'encoding': ('float32',),
@@ -73,17 +73,19 @@ PARAMS = {
     # 'metric': ('mip',),
     #'quantize': (True,),
     'quantizeBits': (1,),
-    #'fanout': (0,),
-    'topK': (100,),
+    #'overSample': (1,2,3,4,5,),
+    'overSample': (5,),#2,3,4,5,),
+    'fanout': (0,),#,10,15),
+    #'searchThreads': (1, 1, 1, 4,4,4 , 8, 8, 8),
+    'topK': (100, ),
     'indexType': ('ivf',),
-    'overSample': (5,),
-    #'filterSelectivity': (0.1, ), #0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99),
-    #'seed': (42,),
-    'nprobe': (10, ),
-    'postings_length': (512, ),
+    #'filterSelectivity': (0.1, ),
+    'seed': (42,),
+    'nprobe': (100,110,120,200,300,400,500),#,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,22,23,24,25),# 10, 20, 30, 40, 50, 60, 70, 80, 90, 100),#20, 30, 40, 50, 100),
+    'postings_length': (384, ),
+    #'nprobe': (10, 20, 30, 40),
     #'quantizeCompress': (True, False),
     'quantizeCompress': (True,),
-    'queryStartIndex': (0,),   # seek to this start vector before searching, to sample different vectors
     'niter': (100,),
 }
 
@@ -120,6 +122,18 @@ def run_knn_benchmark(checkout, values):
     #doc_vectors = '/d/electronics_asin_emb.bin'
     #query_vectors = '/d/electronics_query_vectors.bin'
 
+    #dim = 784
+    #doc_vectors = f"{constants.BASE_DIR}/data/fashion-minst-train.fvec"
+    #query_vectors = f"{constants.BASE_DIR}/data/fashion-minst-test.fvec"
+
+    #dim = 960
+    #doc_vectors = f"{constants.BASE_DIR}/data/corpus-ann-gist-1M.fvec"
+    #query_vectors = f"{constants.BASE_DIR}/data/queries-ann-gist-1M.fvec"
+
+    dim = 200
+    doc_vectors = f"{constants.BASE_DIR}/data/glove-200.train"
+    query_vectors = f"{constants.BASE_DIR}/data/glove-200-small.test"
+
     #dim = 384
     #doc_vectors = f"{constants.BASE_DIR}/util/corpus-quora-E5-small.fvec.flat"
     #query_vectors = f"{constants.BASE_DIR}/util/queries-quora-E5-small.fvec.flat"
@@ -129,12 +143,12 @@ def run_knn_benchmark(checkout, values):
     #query_vectors = f"{constants.BASE_DIR}/util/wiki1024en.test"
 
     # Cohere dataset
-    dim = 768
-    doc_vectors = f"{constants.BASE_DIR}/data/cohere-wikipedia-docs-{dim}d.vec"
-    query_vectors = f"{constants.BASE_DIR}/data/cohere-wikipedia-queries-{dim}d.vec"
+    #dim = 768
+    #doc_vectors = f"{constants.BASE_DIR}/data/cohere-wikipedia-docs-{dim}d.vec"
+    #query_vectors = f"{constants.BASE_DIR}/data/cohere-wikipedia-queries-{dim}d.vec"
     #parentJoin_meta_file = f"{constants.BASE_DIR}/data/{'cohere-wikipedia'}-metadata.csv"
 
-    jfr_output = f'{constants.LOGS_DIR}/ivf-assign-prefiltered.jfr'
+    jfr_output = f'{constants.LOGS_DIR}/ivf-search.jfr'
 
     cp = benchUtil.classPathToString(benchUtil.getClassPath(checkout) + (f'{constants.BENCH_BASE_DIR}/build',))
     cmd = constants.JAVA_EXE.split(' ') + [
@@ -192,15 +206,15 @@ def run_knn_benchmark(checkout, values):
         this_cmd = cmd + args + [
             '-dim', str(dim),
             '-docs', doc_vectors,
-            '-reindex',
+            #'-reindex',
             #'-stats',
             #'-prefilter',
             '-search', query_vectors,
             '-numIndexThreads', '8',
-            '-metric', 'mip',
+            '-metric', 'euclidean',
             # '-parentJoin', parentJoin_meta_file,
             # '-numMergeThread', '8', '-numMergeWorker', '8',
-            '-forceMerge',
+            #'-forceMerge',
             #'-stats',
             #'-quiet'
         ]
@@ -229,7 +243,7 @@ def run_knn_benchmark(checkout, values):
 
     # TODO: be more careful when we skip/show headers e.g. if some of the runs involve filtering,
     # turn filterType/selectivity back on for all runs
-    skip_headers = {'selectivity', 'filterType', 'maxConn', 'beamWidth' }
+    skip_headers = {'selectivity', 'postings_length', 'overSample','filterType', 'maxConn', 'beamWidth','index size (MB)', 'vec_RAM(MB)', 'vec_disk(MB)', 'quantized' }
 
     if '-forceMerge' not in this_cmd:
         skip_headers.add('force merge s')
@@ -237,7 +251,7 @@ def run_knn_benchmark(checkout, values):
     print_fixed_width(all_results, skip_headers)
 
 def print_fixed_width(all_results, columns_to_skip):
-    header = 'recall\tlatency(ms)\tnProbe\tnDoc\ttopK\tfanout\tmaxConn\tbeamWidth\tquantized\tvisited\tindex s\tindex docs/s\tforce merge s\tnum segments\tindex size (MB)\tselectivity\tfilterType\tvec_disk(MB)\tvec_RAM(MB)\toverSample'
+    header = 'recall\tlatency(ms)\tnProbe\tnDoc\ttopK\tfanout\tmaxConn\tbeamWidth\tquantized\tvisited\tindex s\tindex docs/s\tforce merge s\tnum segments\tindex size (MB)\tselectivity\tfilterType\tvec_disk(MB)\tvec_RAM(MB)\tpostings_length\toverSample'
 
     # crazy logic to make everything fixed width so rendering in fixed width font "aligns":
     headers = header.split('\t')

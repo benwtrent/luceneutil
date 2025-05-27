@@ -188,6 +188,7 @@ public class KnnGraphTester {
   private boolean useBp;
   private IndexType indexType;
   private float overSample;
+  private int searchThreads;
 
   private KnnGraphTester() {
     // set defaults
@@ -200,6 +201,7 @@ public class KnnGraphTester {
     indexType = IndexType.HNSW;
     numMergeThread = 1;
     numMergeWorker = 1;
+    searchThreads = 1;
     fanout = topK;
     similarityFunction = VectorSimilarityFunction.DOT_PRODUCT;
     vectorEncoding = VectorEncoding.FLOAT32;
@@ -325,6 +327,15 @@ public class KnnGraphTester {
           }
           queryStartIndex = Integer.parseInt(args[++iarg]);
           log("queryStartIndex = %d", queryStartIndex);
+          break;
+          case "-searchThreads":
+          if (iarg == args.length - 1) {
+            throw new IllegalArgumentException("-searchThreads requires a following number");
+          }
+          searchThreads = Integer.parseInt(args[++iarg]);
+          if (searchThreads <= 0) {
+            throw new IllegalArgumentException("-searchThreads should be >= 1");
+          }
           break;
         case "-maxConn":
           if (iarg == args.length - 1) {
@@ -851,7 +862,7 @@ public class KnnGraphTester {
     long elapsed, totalCpuTimeMS, totalVisited = 0;
     int topK = (overSample > 1) ? (int) (this.topK * overSample) : this.topK;
     int fanout = (overSample > 1) ? (int) (this.fanout * overSample) : this.fanout;
-    ExecutorService executorService = Executors.newFixedThreadPool(8);
+    ExecutorService executorService = Executors.newFixedThreadPool(searchThreads);
     try (FileChannel input = getVectorFileChannel(queryPath, dim, vectorEncoding)) {
       long queryPathSizeInBytes = input.size();
       System.out.println((int) (queryPathSizeInBytes / (dim * vectorEncoding.byteSize)) + " query vectors in queryPath \"" + queryPath + "\"");
@@ -867,7 +878,7 @@ public class KnnGraphTester {
       try (MMapDirectory dir = new MMapDirectory(indexPath)) {
         dir.setPreload((x, ctx) -> x.endsWith(".vec") || x.endsWith(".veq"));
         try (DirectoryReader reader = DirectoryReader.open(dir)) {
-          IndexSearcher searcher = new IndexSearcher(reader);
+          IndexSearcher searcher = searchThreads > 1 ? new IndexSearcher(reader, executorService) : new IndexSearcher(reader);
           numDocs = reader.maxDoc();
           // warm up
           for (int i = 0; i < numQueryVectors; i++) {
@@ -941,7 +952,7 @@ public class KnnGraphTester {
       double reindexSec = reindexTimeMsec / 1000.0;
       System.out.printf(
           Locale.ROOT,
-          "SUMMARY: %5.3f\t%5.3f\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%d\t%.2f\t%.2f\t%.2f\t%d\t%.2f\t%.2f\t%s\t%5.3f\t%5.3f\t%5.3f\n",
+          "SUMMARY: %5.3f\t%5.3f\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%d\t%.2f\t%.2f\t%.2f\t%d\t%.2f\t%.2f\t%s\t%5.3f\t%5.3f\t%d\t%5.3f\n",
           recall,
           totalCpuTimeMS / (float) numQueryVectors,
           nprobe,
@@ -961,6 +972,7 @@ public class KnnGraphTester {
           prefilter ? "pre-filter" : "post-filter",
           vectorDiskSizeBytes / 1024. / 1024.,
           vectorRAMSizeBytes / 1024. / 1024.,
+          vectorPostingsLength,
           overSample);
     }
   }
